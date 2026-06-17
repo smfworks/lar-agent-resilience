@@ -1,0 +1,52 @@
+# Local Agent Runtime Configuration
+
+agent_id: "${AGENT_ID:gabriel}"
+agent_name: "${AGENT_NAME:Gabriel}"
+session_key: "${SESSION_KEY:agent:gabriel:main}"
+
+model:
+  provider: "ollama"
+  model: "kimi-k2.6"
+  base_url: "${OLLAMA_URL:http://localhost:11434}"
+  timeout: 120.0
+  max_retries: 3
+  fallbacks:
+    - "glm-5.1-english"
+    - "qwen3.5:9b"
+
+memory:
+  short_term_limit: 10
+  vault_path: "${VAULT_PATH:~/GabrielVault}"
+  embedding_provider: "ollama"
+  embedding_model: "nomic-embed-text"
+
+identity:
+  enabled: true
+  hmac_secret: "${HMAC_SECRET:}"
+  max_payload_age_seconds: 300
+  strict_session_key: true
+
+tools:
+  - name: "web_search"
+    enabled: true
+    module: "lar.tools.builtin"
+    config: {}
+  
+  - name: "web_fetch"
+    enabled: true
+    module: "lar.tools.builtin"
+    config: {}
+  
+  - name: "exec"
+    enabled: true
+    module: "lar.tools.builtin"
+    config:
+      allowed_commands: ["ls", "cat", "grep", "find", "curl"]
+  
+  - name: "file_read"
+    enabled: true
+    module: "lar.tools.builtin"
+    config: {}
+
+log_level: "INFO"
+log_format: "json"

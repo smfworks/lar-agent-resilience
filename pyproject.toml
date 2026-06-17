@@ -1,0 +1,25 @@
+[project]
+name = "local-agent-runtime"
+version = "0.1.0"
+description = "Local Agent Runtime - standalone agent execution engine for Linux"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "structlog>=24.1",
+    "jinja2>=3.1",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "black>=24.0",
+    "mypy>=1.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["lar/tests"]
+asyncio_default_fixture_loop_scope = "function"
