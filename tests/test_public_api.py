@@ -84,3 +84,10 @@ class TestPublicAPI:
         assert isinstance(agent_resilience.OllamaBackend, type)
         assert isinstance(agent_resilience.FallbackBackend, type)
         assert isinstance(agent_resilience.LLMResponse, type)
+
+    def test_readme_aliases_import(self):
+        from agent_resilience import Agent, Checkpoint, ModelRouter
+
+        assert Agent is agent_resilience.AgentLoop
+        assert Checkpoint is agent_resilience.CheckpointStore
+        assert ModelRouter is agent_resilience.ModelRouter

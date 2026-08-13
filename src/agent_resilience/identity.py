@@ -128,8 +128,23 @@ class SessionIdentityValidator:
         required = {"agentId", "sessionKey", "timestamp"}
         return all(field in payload for field in required)
     
-    def _is_fresh(self, timestamp: float) -> bool:
+    def _is_fresh(self, timestamp) -> bool:
         """Check if payload timestamp is within acceptable window."""
+        if timestamp is None:
+            return False
+        if isinstance(timestamp, str):
+            text = timestamp.strip()
+            try:
+                timestamp = float(text)
+            except ValueError:
+                from datetime import datetime
+
+                try:
+                    timestamp = datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    return False
+        if not isinstance(timestamp, (int, float)):
+            return False
         now = time.time()
         age = now - timestamp
         return 0 <= age <= self.max_payload_age_seconds
