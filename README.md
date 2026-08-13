@@ -31,30 +31,35 @@ These are not abstractions. They are working primitives, each with a design rati
 ## Quick Start
 
 ```bash
-pip install -e .
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest -q
 ```
 
 ```python
-from agent_resilience import Agent, ModelRouter, Checkpoint
+from agent_resilience import CircuitBreaker, CheckpointStore, ConfigManager
 
-router = ModelRouter(
-    primary="ollama/qwen3-coder:32b",
-    fallbacks=[
-        "ollama/kimi-k2.7-code:cloud",
-        "ollama/qwen3.5:9b",
-    ],
-)
-
-agent = Agent(
-    router=router,
-    checkpoint=Checkpoint("./state.db"),
-    consolidation_steps=50,  # async awakening after model swap
-)
-
-# Agent runs. Primary model dies. Circuit breaker kicks in.
-# Router selects fallback. Consolidation runs. Agent resumes.
-result = agent.run(task)
+cfg = ConfigManager.from_mapping({
+    "agent_id": "jeff",
+    "agent_name": "Jeff",
+    "session_key": "agent:jeff:main",
+})
 ```
+
+Historical import path `import lar` still works (shim).
+
+The README example `Agent` / `ModelRouter` classes live in the skill package (`skills/resilience-skill/scripts/failover.py`) and in `AgentLoop` (`agent_resilience.agent`). They are not a single `from agent_resilience import Agent` facade yet.
+
+Copy `config.example.yaml` to `config/local.yaml` before running the CLI:
+
+```bash
+python -m agent_resilience --config config/local.yaml --interactive
+```
+
+## Tests and CI
+
+`pytest` covers the skill failover contract plus core primitives (config, identity, circuit breaker, checkpoints). GitHub Actions runs the same suite on Python 3.11 and 3.12.
 
 ## Install the OpenClaw Skill
 

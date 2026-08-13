@@ -2,7 +2,7 @@ from typing import Any, Optional
 from pathlib import Path
 import os
 import yaml
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class ModelConfig(BaseModel):
@@ -53,13 +53,22 @@ class RuntimeConfig(BaseModel):
     
     log_level: str = "INFO"
     log_format: str = "json"
-    
-    @validator("log_level")
+    workspace_dir: Path = Field(default_factory=lambda: Path.cwd())
+
+    @field_validator("log_level")
+    @classmethod
     def validate_log_level(cls, v: str) -> str:
         allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if v.upper() not in allowed:
             raise ValueError(f"log_level must be one of {allowed}")
         return v.upper()
+
+    @field_validator("identity")
+    @classmethod
+    def _normalize_identity_secret(cls, v: IdentityConfig) -> IdentityConfig:
+        if v.hmac_secret == "":
+            v.hmac_secret = None
+        return v
 
 
 class ConfigManager:
@@ -80,8 +89,21 @@ class ConfigManager:
         for candidate in candidates:
             if candidate.exists():
                 return candidate
-        raise FileNotFoundError("No config file found. Create config/local.yaml")
-    
+        raise FileNotFoundError(
+            "No config file found. Copy config.example.yaml to config/local.yaml "
+            "or pass config_path= explicitly."
+        )
+
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any]) -> RuntimeConfig:
+        """Build a validated RuntimeConfig from an in-memory mapping (tests, embeds)."""
+        mgr = cls.__new__(cls)
+        mgr.config_path = Path("<memory>")
+        mgr._config = None
+        data = mgr._substitute_env(raw)
+        mgr._config = RuntimeConfig(**data)
+        return mgr._config
+
     def load(self) -> RuntimeConfig:
         """Load and validate configuration."""
         with open(self.config_path, "r") as f:

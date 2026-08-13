@@ -74,7 +74,9 @@ class CircuitBreaker:
     ) -> None:
         self.agent_id = agent_id
         self.config = config or CircuitBreakerConfig()
-        self.state_file = state_file or Path(f"/tmp/lar_circuit_{agent_id}.json")
+        self.state_file = state_file or (
+            Path.home() / ".local" / "state" / "lar" / f"circuit_{agent_id}.json"
+        )
         self.state = CircuitState.CLOSED
         self.misfires: list[MisfireEvent] = []
         self._failure_count = 0

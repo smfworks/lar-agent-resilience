@@ -25,8 +25,8 @@ from typing import Any, Optional
 import structlog
 import httpx
 
-from lar.config import RuntimeConfig
-from lar.checkpoint import CheckpointStore
+from agent_resilience.config import RuntimeConfig
+from agent_resilience.checkpoint import CheckpointStore
 
 logger = structlog.get_logger("lar.health")
 
@@ -146,8 +146,8 @@ class HealthMonitor:
 
     async def check_tools(self) -> CheckResult:
         """Verify tool registry integrity."""
-        from lar.tools import ToolRegistry
-        from lar.tools.builtin import register_builtin_tools
+        from agent_resilience.tools import ToolRegistry
+        from agent_resilience.tools.builtin import register_builtin_tools
 
         registry = ToolRegistry()
         try:
@@ -196,14 +196,17 @@ class HealthMonitor:
 
     async def check_identity_validator(self) -> CheckResult:
         """Verify identity validation is operational."""
-        from lar.identity import SessionIdentityValidator
+        from agent_resilience.identity import SessionIdentityValidator
 
         try:
-            validator = SessionIdentityValidator(self.config.agent_id)
-            # Test with a valid payload (self-matching)
+            session_key = getattr(self.config, "session_key", f"agent:{self.config.agent_id}:main")
+            validator = SessionIdentityValidator(
+                self.config.agent_id,
+                session_key,
+            )
             valid_payload = {
                 "agent_id": self.config.agent_id,
-                "session_key": f"agent:{self.config.agent_id}:main",
+                "session_key": session_key,
                 "timestamp": datetime.utcnow().isoformat(),
             }
             result, _ = validator.validate(valid_payload)

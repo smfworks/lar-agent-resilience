@@ -71,8 +71,8 @@ class SessionIdentityValidator:
             self._log_rejection(error, payload)
             return False, error
         
-        payload_agent_id = payload.get("agentId")
-        payload_session_key = payload.get("sessionKey")
+        payload_agent_id = payload.get("agentId", payload.get("agent_id"))
+        payload_session_key = payload.get("sessionKey", payload.get("session_key"))
         payload_timestamp = payload.get("timestamp")
         payload_signature = payload.get("signature")
         
@@ -124,14 +124,34 @@ class SessionIdentityValidator:
         return True, None
     
     def _has_required_fields(self, payload: dict) -> bool:
-        """Check payload has minimum required fields."""
-        required = {"agentId", "sessionKey", "timestamp"}
-        return all(field in payload for field in required)
-    
-    def _is_fresh(self, timestamp: float) -> bool:
-        """Check if payload timestamp is within acceptable window."""
+        """Check payload has minimum required fields (camelCase or snake_case)."""
+        has_agent = "agentId" in payload or "agent_id" in payload
+        has_session = "sessionKey" in payload or "session_key" in payload
+        has_ts = "timestamp" in payload
+        return has_agent and has_session and has_ts
+
+    def _is_fresh(self, timestamp) -> bool:
+        """Check if payload timestamp is within acceptable window.
+
+        Accepts unix seconds (int/float) or ISO-8601 strings.
+        """
         now = time.time()
-        age = now - timestamp
+        try:
+            if isinstance(timestamp, (int, float)):
+                ts = float(timestamp)
+            elif isinstance(timestamp, str):
+                from datetime import datetime, timezone
+
+                text = timestamp.replace("Z", "+00:00")
+                parsed = datetime.fromisoformat(text)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                ts = parsed.timestamp()
+            else:
+                return False
+        except (TypeError, ValueError):
+            return False
+        age = now - ts
         return 0 <= age <= self.max_payload_age_seconds
     
     def _verify_signature(self, payload: dict, signature: Optional[str]) -> bool:

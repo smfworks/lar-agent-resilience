@@ -58,10 +58,11 @@ class AgentState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentState":
-        # Convert string phase back to enum
-        if isinstance(data.get("phase"), str):
-            data["phase"] = Phase(data["phase"])
-        return cls(**data)
+        payload = dict(data)
+        if isinstance(payload.get("phase"), str):
+            payload["phase"] = Phase(payload["phase"])
+        known = set(cls.__dataclass_fields__)
+        return cls(**{k: v for k, v in payload.items() if k in known})
 
 
 class CheckpointStore:
@@ -222,11 +223,10 @@ class CheckpointStore:
         cutoff = datetime.utcnow().isoformat()
         await self._init()
         async with aiosqlite.connect(self.db_path) as db:
+            days_i = max(0, int(days))
             cursor = await db.execute(
-                """
-                DELETE FROM checkpoints
-                WHERE timestamp < datetime('now', '-{} days')
-                """.format(days)
+                "DELETE FROM checkpoints WHERE timestamp < datetime('now', ?)",
+                (f"-{days_i} days",),
             )
             await db.commit()
             return cursor.rowcount

@@ -1,8 +1,15 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "local-agent-runtime"
-version = "0.1.0"
-description = "Local Agent Runtime - standalone agent execution engine for Linux"
+version = "0.2.0"
+description = "Local Agent Runtime — primitives for agents that survive model death"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Gabriel / SMF Works" }]
 dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
@@ -10,6 +17,8 @@ dependencies = [
     "structlog>=24.1",
     "jinja2>=3.1",
     "python-dotenv>=1.0",
+    "aiosqlite>=0.20",
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]
@@ -20,7 +29,14 @@ dev = [
     "mypy>=1.8",
 ]
 
+[project.scripts]
+lar = "agent_resilience.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src"]

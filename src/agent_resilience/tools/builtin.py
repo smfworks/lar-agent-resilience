@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from lar.tools import Tool, ToolResult
+from agent_resilience.tools import Tool, ToolResult
 
 
 class WebSearchTool(Tool):
@@ -125,7 +125,7 @@ class ExecTool(Tool):
     # Commands that are NEVER allowed
     BLOCKED_PATTERNS = [
         "rm -rf", "rm -r /", "> /dev", "dd if=", "mkfs.",
-        "curl .*\|", "wget .*\|", "eval", "exec",
+        r"curl .*\||wget .*\||eval|exec",
     ]
     
     def __init__(self, allowed_commands: list[str] = None):
