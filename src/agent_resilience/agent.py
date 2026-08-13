@@ -4,13 +4,13 @@ import time
 from typing import Optional, Any, TYPE_CHECKING
 import structlog
 
-from lar.config import ConfigManager, RuntimeConfig
-from lar.identity import SessionIdentityValidator, ValidationResult
-from lar.llm import LLMBackend, OllamaBackend, FallbackBackend, LLMResponse
-from lar.tools import ToolRegistry
+from agent_resilience.config import ConfigManager, RuntimeConfig
+from agent_resilience.identity import SessionIdentityValidator, ValidationResult
+from agent_resilience.llm import LLMBackend, OllamaBackend, FallbackBackend, LLMResponse
+from agent_resilience.tools import ToolRegistry
 
 if TYPE_CHECKING:
-    from lar.observatory import Observatory, StepEvent
+    from agent_resilience.observatory import Observatory, StepEvent
 
 logger = structlog.get_logger("lar.agent")
 
@@ -62,7 +62,7 @@ class AgentLoop:
                 tool_config.setdefault("file", {}).update(tc.config)
         
         try:
-            from lar.tools.builtin import register_builtin_tools
+            from agent_resilience.tools.builtin import register_builtin_tools
             register_builtin_tools(self.tool_registry, tool_config)
             logger.info("builtin_tools_registered", count=len(self.tool_registry.get_tool_names()))
         except ImportError as e:
@@ -99,7 +99,7 @@ class AgentLoop:
         """
         # ---- CHECKPOINT: Resume from previous if available ----
         if checkpoint_store:
-            from lar.checkpoint import CheckpointStore, AgentState, Phase
+            from agent_resilience.checkpoint import CheckpointStore, AgentState, Phase
             latest = await checkpoint_store.latest_for_task(task_id)
             if latest and not latest.is_complete:
                 logger.info(
@@ -146,7 +146,7 @@ class AgentLoop:
             return f"Error: LLM backend failed — {str(e)}"
         think_ms = (time.time() - t0) * 1000
         if self.observatory:
-            from lar.observatory import StepEvent
+            from agent_resilience.observatory import StepEvent
             self.observatory.record_step(StepEvent(
                 timestamp=time.time(), phase="think",
                 step_number=step_number + 1, duration_ms=think_ms,
@@ -171,7 +171,7 @@ class AgentLoop:
                     result = await self.tool_registry.execute(name, **arguments)
                     tool_ms = (time.time() - t_tool) * 1000
                     if self.observatory:
-                        from lar.observatory import StepEvent
+                        from agent_resilience.observatory import StepEvent
                         self.observatory.record_step(StepEvent(
                             timestamp=time.time(), phase="act",
                             step_number=step_number, duration_ms=tool_ms,
@@ -183,7 +183,7 @@ class AgentLoop:
                     tool_results.append({"tool": name, "result": result.to_dict()})
                 else:
                     if self.observatory:
-                        from lar.observatory import StepEvent
+                        from agent_resilience.observatory import StepEvent
                         self.observatory.record_step(StepEvent(
                             timestamp=time.time(), phase="act",
                             step_number=step_number, duration_ms=0,
@@ -211,7 +211,7 @@ class AgentLoop:
 
             # CHECKPOINT: After tool execution
             if checkpoint_store:
-                from lar.checkpoint import AgentState, Phase
+                from agent_resilience.checkpoint import AgentState, Phase
                 state = AgentState(
                     task_id=task_id,
                     step_number=step_number,
@@ -223,7 +223,7 @@ class AgentLoop:
                     memory_snapshot={},  # memory.dict() if memory exists
                     iteration=step_number,
                     model_used=getattr(response, "model_used", "unknown") or "unknown",
-                    tools_available=[t.name for t in self.tool_registry.registry.values()],
+                    tools_available=[t.name for t in self.tool_registry._tools.values()],
                     checkpoint_reason="step_boundary",
                 )
                 cp_id = await checkpoint_store.save(state)
@@ -245,7 +245,7 @@ class AgentLoop:
         # Step 5: RESPOND — Return final output
         self._message_history.append({"role": "assistant", "content": response.content})
         if self.observatory:
-            from lar.observatory import StepEvent
+            from agent_resilience.observatory import StepEvent
             self.observatory.record_step(StepEvent(
                 timestamp=time.time(), phase="respond",
                 step_number=step_number, duration_ms=0,
@@ -254,7 +254,7 @@ class AgentLoop:
 
         # FINAL CHECKPOINT: Mark complete
         if checkpoint_store:
-            from lar.checkpoint import AgentState, Phase
+            from agent_resilience.checkpoint import AgentState, Phase
             state = AgentState(
                 task_id=task_id,
                 step_number=step_number,
@@ -267,7 +267,7 @@ class AgentLoop:
                 is_complete=True,
                 iteration=step_number,
                 model_used=getattr(response, "model_used", "unknown") or "unknown",
-                tools_available=[t.name for t in self.tool_registry.registry.values()],
+                tools_available=[t.name for t in self.tool_registry._tools.values()],
                 checkpoint_reason="step_boundary",
             )
             cp_id = await checkpoint_store.save(state)

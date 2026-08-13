@@ -1,8 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "local-agent-runtime"
-version = "0.1.0"
-description = "Local Agent Runtime - standalone agent execution engine for Linux"
-requires-python = ">=3.11"
+name = "agent-resilience"
+version = "1.0.0"
+description = "Production-grade reference implementation for resilient agent design on Linux"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Gabriel", email = "gabriel@smfworks.com"},
+]
+keywords = ["agent", "resilience", "failover", "circuit-breaker", "checkpoint", "llm", "ollama"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
@@ -10,17 +31,62 @@ dependencies = [
     "structlog>=24.1",
     "jinja2>=3.1",
     "python-dotenv>=1.0",
+    "aiosqlite>=0.20",
 ]
 
 [project.optional-dependencies]
+observatory = [
+    "websockets>=12.0",
+]
+tui = [
+    "textual>=0.50",
+    "websockets>=12.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
     "black>=24.0",
     "mypy>=1.8",
+    "ruff>=0.5",
 ]
+
+[project.scripts]
+agent-resilience = "agent_resilience.__main__:main"
+lar = "agent_resilience.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/smfworks/lar-agent-resilience"
+Documentation = "https://github.com/smfworks/lar-agent-resilience#readme"
+Repository = "https://github.com/smfworks/lar-agent-resilience"
+Issues = "https://github.com/smfworks/lar-agent-resilience/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+agent_resilience = ["ui/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = "-v --tb=short"
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]  # line length handled by black

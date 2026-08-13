@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from lar.tools import Tool, ToolResult
+from agent_resilience.tools import Tool, ToolResult
 
 
 class WebSearchTool(Tool):

@@ -14,9 +14,9 @@ from pathlib import Path
 
 import structlog
 
-from lar.config import ConfigManager
-from lar.identity import SessionIdentityValidator
-from lar.agent import AgentLoop
+from agent_resilience.config import ConfigManager
+from agent_resilience.identity import SessionIdentityValidator
+from agent_resilience.agent import AgentLoop
 
 
 def setup_logging(log_level: str, log_format: str):

@@ -1,13 +1,13 @@
 """
-LAR — Health Check & Monitoring Module
+agent_resilience — Health Check & Monitoring Module
 
-Self-diagnostic capabilities for the Local Agent Runtime:
+Self-diagnostic capabilities for the agent runtime:
 - Ollama endpoint connectivity
 - Tool registry integrity
 - Checkpoint store consistency
 - Session identity validation
 - Disk space and resource availability
-- Cron misfire detection (inspired by Harry→Gabriel incident)
+- Cron misfire detection
 
 Produces structured health reports compatible with observability dashboards.
 """
@@ -16,19 +16,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-import structlog
 import httpx
+import structlog
 
-from lar.config import RuntimeConfig
-from lar.checkpoint import CheckpointStore
+from agent_resilience.config import RuntimeConfig
+from agent_resilience.checkpoint import CheckpointStore
 
-logger = structlog.get_logger("lar.health")
+logger = structlog.get_logger("agent_resilience.health")
 
 
 class HealthStatus(str, Enum):
@@ -146,8 +148,8 @@ class HealthMonitor:
 
     async def check_tools(self) -> CheckResult:
         """Verify tool registry integrity."""
-        from lar.tools import ToolRegistry
-        from lar.tools.builtin import register_builtin_tools
+        from agent_resilience.tools import ToolRegistry
+        from agent_resilience.tools.builtin import register_builtin_tools
 
         registry = ToolRegistry()
         try:
@@ -177,7 +179,6 @@ class HealthMonitor:
                 details={"reason": "no checkpoint_store configured"},
             )
         try:
-            # Try to list incomplete tasks (lightweight read)
             tasks = await self.checkpoint_store.incomplete_tasks()
             return CheckResult(
                 name="checkpoint_store",
@@ -196,15 +197,18 @@ class HealthMonitor:
 
     async def check_identity_validator(self) -> CheckResult:
         """Verify identity validation is operational."""
-        from lar.identity import SessionIdentityValidator
+        from agent_resilience.identity import SessionIdentityValidator
 
         try:
-            validator = SessionIdentityValidator(self.config.agent_id)
+            validator = SessionIdentityValidator(
+                expected_agent_id=self.config.agent_id,
+                expected_session_key=self.config.session_key,
+            )
             # Test with a valid payload (self-matching)
             valid_payload = {
-                "agent_id": self.config.agent_id,
-                "session_key": f"agent:{self.config.agent_id}:main",
-                "timestamp": datetime.utcnow().isoformat(),
+                "agentId": self.config.agent_id,
+                "sessionKey": self.config.session_key,
+                "timestamp": time.time(),
             }
             result, _ = validator.validate(valid_payload)
             return CheckResult(
@@ -224,10 +228,11 @@ class HealthMonitor:
 
     async def check_disk_space(self) -> CheckResult:
         """Check available disk space for checkpoint DB and logs."""
-        import shutil
-
         try:
-            stat = shutil.disk_usage(self.config.workspace_dir)
+            workspace = Path(self.config.workspace_dir)
+            if not workspace.exists():
+                workspace = Path(".")
+            stat = shutil.disk_usage(str(workspace))
             total_gb = stat.total / (1024**3)
             free_gb = stat.free / (1024**3)
             used_pct = (stat.used / stat.total) * 100
@@ -255,7 +260,7 @@ class HealthMonitor:
             )
 
     async def check_cron_misfires(self) -> CheckResult:
-        """Check for recent cron routing misfires (inspired by Harry→Gabriel)."""
+        """Check for recent cron routing misfires."""
         if not self._misfire_log:
             return CheckResult(
                 name="cron_misfire_detector",
