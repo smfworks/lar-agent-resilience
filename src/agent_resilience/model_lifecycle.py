@@ -10,9 +10,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -198,7 +197,7 @@ class ModelLifecycle:
         """
         now = datetime.now(timezone.utc)
         eol = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        eol_str = eol.replace(day=eol.day + days_until_eol).isoformat()
+        eol_str = (eol + timedelta(days=days_until_eol)).isoformat()
 
         if model_id not in self.models:
             self.register_or_update(model_id, provider="openai", status="active")
@@ -220,6 +219,36 @@ class ModelLifecycle:
                 "status": rec.status,
                 "notes": rec.notes[-3:],
             } if rec else None,
+        }
+
+    async def swap_model(self, router, consolidator, predict_fn, replay_buffer: list) -> dict:
+        """Advance the router, run consolidation, and record inventory notes.
+
+        Tool use is the caller's responsibility: disable before this call
+        and re-enable only if metrics['threshold_met'] is true.
+        """
+        from_model = router.current.model_id
+        new = router.advance(reason="swap_model")
+        if new is None:
+            return {
+                "swapped": False,
+                "from_model": from_model,
+                "to_model": None,
+                "reason": "fallback_chain_exhausted",
+            }
+        self.mark_deprecated(from_model, reason="swapped via ModelLifecycle.swap_model")
+        self.register_or_update(new.model_id, provider=new.provider, status="active")
+        metrics = await consolidator.consolidate(predict_fn, replay_buffer)
+        router.record_consolidation(
+            steps=metrics["steps"],
+            recovery=metrics["recovery"],
+            duration_seconds=metrics["duration_seconds"],
+        )
+        return {
+            "swapped": True,
+            "from_model": from_model,
+            "to_model": new.model_id,
+            "consolidation": metrics,
         }
 
 

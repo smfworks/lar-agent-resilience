@@ -1,15 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "local-agent-runtime"
-version = "0.1.0"
-description = "Local Agent Runtime - standalone agent execution engine for Linux"
+name = "agent-resilience"
+version = "0.2.0"
+description = "Local Agent Resilience — importable toolkit for agents that survive model death"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11"
+authors = [
+    { name = "Gabriel", email = "michael@smfworks.com" },
+]
 dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "httpx>=0.27",
     "structlog>=24.1",
-    "jinja2>=3.1",
     "python-dotenv>=1.0",
+    "aiosqlite>=0.20",
 ]
 
 [project.optional-dependencies]
@@ -18,9 +27,35 @@ dev = [
     "pytest-asyncio>=0.23",
     "black>=24.0",
     "mypy>=1.8",
+    "ruff>=0.6",
 ]
+observatory = [
+    "websockets>=12.0",
+]
+tui = [
+    "textual>=0.50",
+    "websockets>=12.0",
+]
+
+[project.scripts]
+lar = "agent_resilience.__main__:cli_main"
+
+[project.urls]
+Homepage = "https://github.com/smfworks/lar-agent-resilience"
+Issues = "https://github.com/smfworks/lar-agent-resilience/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501", "E402"]

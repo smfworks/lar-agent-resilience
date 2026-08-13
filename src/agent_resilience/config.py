@@ -2,7 +2,7 @@ from typing import Any, Optional
 from pathlib import Path
 import os
 import yaml
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class ModelConfig(BaseModel):
@@ -39,6 +39,13 @@ class IdentityConfig(BaseModel):
     max_payload_age_seconds: int = 300
     strict_session_key: bool = True
 
+    @field_validator("hmac_secret")
+    @classmethod
+    def empty_secret_is_none(cls, v: Optional[str]) -> Optional[str]:
+        if v == "":
+            return None
+        return v
+
 
 class RuntimeConfig(BaseModel):
     """Top-level runtime configuration."""
@@ -53,8 +60,10 @@ class RuntimeConfig(BaseModel):
     
     log_level: str = "INFO"
     log_format: str = "json"
+    workspace_dir: Path = Field(default_factory=lambda: Path("."))
     
-    @validator("log_level")
+    @field_validator("log_level")
+    @classmethod
     def validate_log_level(cls, v: str) -> str:
         allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if v.upper() not in allowed:
@@ -74,8 +83,8 @@ class ConfigManager:
         candidates = [
             Path("config/local.yaml"),
             Path("config/default.yaml"),
+            Path("config.example.yaml"),
             Path.home() / ".config" / "lar" / "config.yaml",
-            Path("/etc/lar/config.yaml"),
         ]
         for candidate in candidates:
             if candidate.exists():

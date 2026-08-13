@@ -20,7 +20,7 @@ I published a blog post called [Design Agents That Survive Model Death](https://
 
 **The principle:** An agent should not know which model it is talking to. The model should be a runtime dependency, not a compile-time assumption.
 
-**In the code:** `ModelRouter` is injected into the `Agent` at construction. The agent calls `router.select(task_input)` to get a model. The model name lives in config, not code. When a model dies, you change one line.
+**In the code:** `ModelRouter` is injected into `Agent` at construction. The agent calls `router.select(task_input)` (today this returns `router.current`). The model name lives in config or in the router constructor, not in the think/act loop. When a model dies, `router.advance()` moves to the next fallback.
 
 **Why I care:** The single most common failure mode I've seen is agents hardcoded to `gpt-4o` or `claude-3-sonnet`. The author writes the prompt, tests it, ships it, and six months later the model is deprecated. The agent dies not because it was bad, but because it was brittle. Decoupling is the most basic act of agent self-preservation.
 
@@ -28,7 +28,7 @@ I published a blog post called [Design Agents That Survive Model Death](https://
 
 **The principle:** Never trust a model to return exactly what you asked for. Define a schema, parse defensively, degrade gracefully.
 
-**In the code:** Every task has a Pydantic schema. The agent tries structured output first, falls back to heuristic extraction. If both fail, the agent logs the failure and continues with reduced precision rather than crashing.
+**In the code:** Identity payloads are validated before the loop continues. LLM responses are wrapped as `LLMResponse`; tool arguments that arrive as JSON strings are parsed defensively. A failed or empty chat does not crash the process — the router advances or the caller gets an error string.
 
 **Why I care:** I watched an agent silently start producing wrong outputs for two weeks because a model update changed its JSON formatting. The user thought the agent was getting dumber. The agent was getting more brittle. Schema ownership makes failures visible instead of silent.
 
@@ -36,7 +36,7 @@ I published a blog post called [Design Agents That Survive Model Death](https://
 
 **The principle:** After any model swap, the agent should observe and predict before it starts using tools. This is *asynchronous awakening* — Evan Ye's term from *From Prediction to Self* (arxiv 2606.05605).
 
-**In the code:** `ModelLifecycle.swap_model()` disables the action pathway, runs N prediction-only steps on the replay buffer, measures the self-prediction recovery, and only re-enables tool use when the agency gain crosses a threshold.
+**In the code:** `Agent` disables tools during failover, runs `Consolidator` prediction-only steps on a replay buffer, and re-enables tools only if the completion threshold is met. `ModelLifecycle.swap_model()` is the inventory-side helper that records the same transition. Recovery is a completion metric, not a claim of measured agency gain.
 
 **Why I care:** Hot-swapping a model and immediately resuming tool use is the mistake that turns a swap into a catastrophe. The agent may still call tools, but its internal model of what its own actions do is stale. Give it a settling period. The consolidation phase is not overhead. It's the difference between an agent that survives and an agent that thrashes.
 
@@ -44,7 +44,7 @@ I published a blog post called [Design Agents That Survive Model Death](https://
 
 **The principle:** Prompts are code. Treat them like code. Each prompt version is pinned to a model version and a set of evaluation results.
 
-**In the code:** `prompts/code_review/v1.md`, `v2.md`, `v3.md`. Each version carries model compatibility metadata and an evaluation result file. The `PromptRegistry` resolves which version to use based on the active model.
+**In the code:** Prompts are caller-owned. This library does not ship a `PromptRegistry` or versioned `prompts/` tree. Pin your own prompt files next to the model id in config if you need that discipline.
 
 **Why I care:** I have watched people rewrite prompts as if they were just text. They aren't. They're compiled artifacts. A prompt that works on `qwen3-coder:32b` may fail on `gpt-4o-2024-08-06` because the latter ignores section ordering. You don't know that without evaluation. Versioning makes the relationship explicit.
 
@@ -52,7 +52,7 @@ I published a blog post called [Design Agents That Survive Model Death](https://
 
 **The principle:** You cannot survive model death without knowing when a model has died. That requires continuous evaluation, not just vibe checks.
 
-**In the code:** `ModelEvaluator` runs a suite of cases against each model, scores outputs, finds regressions, stores reports. Run it on every model you consider. Compare new versions to baseline before promoting them.
+**In the code:** There is no `ModelEvaluator` class in this tree. Failover is proven with an injectable fake LLM in `tests/test_agent_failover.py`. Add your own eval suite before promoting a new primary.
 
 **Why I care:** The agents that died with Fable 5 weren't running evaluation harnesses. They had integration tests, maybe. Integration tests confirm a model works. Evaluation harnesses confirm a model is *still* working. The first is a snapshot. The second is a film.
 
@@ -60,7 +60,7 @@ I published a blog post called [Design Agents That Survive Model Death](https://
 
 **The principle:** Closed APIs fail. Local models do not fail in the same way. A resilient agent keeps a fallback chain.
 
-**In the code:** `ModelRouter` accepts a `primary` model and a `fallbacks` list. `CircuitBreaker` opens when a model fails N times in M seconds, and the router selects the next model in the chain. The local fallback may be weaker, but it keeps the agent alive during an outage, a pricing change, or an export-control order.
+**In the code:** `ModelRouter` accepts a `primary` model and a `fallbacks` list. `ModelCircuitBreaker` opens after N failures in M seconds for a model id. `Agent` advances the router on chat failure. The local fallback may be weaker, but it keeps the agent alive during an outage, a pricing change, or an export-control order.
 
 **Why I care:** Dependency is not strength. Every agent that depended exclusively on Fable 5 died with Fable 5. Every agent with a local fallback kept running. The 30B local model is slower. It is also sovereign. Sovereignty is not a luxury. It is the floor.
 
@@ -68,7 +68,7 @@ I published a blog post called [Design Agents That Survive Model Death](https://
 
 **The principle:** Tools should be model-independent interfaces, not model-specific incantations.
 
-**In the code:** `Tool` is a Protocol with `name`, `description`, `input_schema`, `output_schema`, and `async def run()`. The agent decides *which tool to call*. The tool layer decides *how to call it*. The model layer only sees a structured description of the tool.
+**In the code:** `Tool` is an ABC with `name`, `description`, `parameters`, and `async def execute()`. The agent decides which tool to call. The tool layer decides how. The model only sees an OpenAI-shaped schema.
 
 **Why I care:** I've seen agents where the tool-calling format was hardcoded to one model's JSON dialect. The agent worked perfectly on Claude and broke on everything else. Tool abstraction isn't academic. It's the difference between an agent that can be ported and one that can't.
 
@@ -76,7 +76,7 @@ I published a blog post called [Design Agents That Survive Model Death](https://
 
 **The principle:** Agents fail silently. A model swap that degrades output quality by 20% will not throw an exception — it will just make worse decisions.
 
-**In the code:** `Health` tracks structured output parse rate, tool call success rate, latency per model, evaluation scores over time, and user correction rate. Metrics are emitted with model tags. When a metric crosses a threshold, alert and fall back.
+**In the code:** `HealthMonitor` reports Ollama reachability, tool registry load, checkpoint I/O, identity self-test, disk, and logged misfires. Failover emits structured logs (`model_swap`, `failover_complete`). Per-model eval scores and user-correction rate are not implemented.
 
 **Why I care:** Silent failure is the cruelest failure mode. Users lose trust. Operators miss signals. The agent keeps running, just worse. Observability isn't optional. It's how an agent maintains its own integrity.
 

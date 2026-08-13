@@ -16,17 +16,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 import httpx
 
-from lar.config import RuntimeConfig
-from lar.checkpoint import CheckpointStore
+from agent_resilience.config import RuntimeConfig
+from agent_resilience.checkpoint import CheckpointStore
 
 logger = structlog.get_logger("lar.health")
 
@@ -67,7 +67,7 @@ class HealthReport:
     overall: HealthStatus
     checks: list[CheckResult]
     agent_id: str = "unknown"
-    version: str = "1.0.0"
+    version: str = "0.2.0"
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     uptime_seconds: float = 0.0
     session_count: int = 0
@@ -146,8 +146,8 @@ class HealthMonitor:
 
     async def check_tools(self) -> CheckResult:
         """Verify tool registry integrity."""
-        from lar.tools import ToolRegistry
-        from lar.tools.builtin import register_builtin_tools
+        from agent_resilience.tools import ToolRegistry
+        from agent_resilience.tools.builtin import register_builtin_tools
 
         registry = ToolRegistry()
         try:
@@ -196,15 +196,19 @@ class HealthMonitor:
 
     async def check_identity_validator(self) -> CheckResult:
         """Verify identity validation is operational."""
-        from lar.identity import SessionIdentityValidator
+        from agent_resilience.identity import SessionIdentityValidator
 
         try:
-            validator = SessionIdentityValidator(self.config.agent_id)
-            # Test with a valid payload (self-matching)
+            validator = SessionIdentityValidator(
+                expected_agent_id=self.config.agent_id,
+                expected_session_key=self.config.session_key,
+                hmac_secret=self.config.identity.hmac_secret,
+                strict_session_key=self.config.identity.strict_session_key,
+            )
             valid_payload = {
-                "agent_id": self.config.agent_id,
-                "session_key": f"agent:{self.config.agent_id}:main",
-                "timestamp": datetime.utcnow().isoformat(),
+                "agentId": self.config.agent_id,
+                "sessionKey": self.config.session_key,
+                "timestamp": time.time(),
             }
             result, _ = validator.validate(valid_payload)
             return CheckResult(
@@ -329,6 +333,10 @@ class HealthMonitor:
         )
 
         return report
+
+    async def check_all(self) -> HealthReport:
+        """Alias used by optional observatory integrations."""
+        return await self.run_all_checks()
 
     # ── Cron Misfire Tracking ─────────────────────────────────────────
 

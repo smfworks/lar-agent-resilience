@@ -1,42 +1,11 @@
-"""Pytest conversion of the resilience skill tests.
-
-The original test runner lives at
-`skills/resilience-skill/examples/test_demo.py` and is a standalone
-async script. This file ports those six checks to pytest so they
-can run in CI, surface diffs on regression, and integrate with
-pytest-asyncio for proper event-loop handling.
-
-Why this matters: a skill that survives model death should also
-survive a `git push` without silently breaking. The 6 tests below
-are the smoke test that the failover primitive is still contract-
-correct after a refactor.
-"""
+"""Library-backed skill tests (same six contracts as the original demo)."""
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Make the skill's failover module importable without an install step.
-_SKILL_SCRIPTS = (
-    Path(__file__).resolve().parent.parent
-    / "skills"
-    / "resilience-skill"
-    / "scripts"
-)
-if str(_SKILL_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(_SKILL_SCRIPTS))
-
-from failover import Consolidator, ModelRouter  # noqa: E402
-
-
-# ---------------------------------------------------------------------------
-# ModelRouter tests
-# ---------------------------------------------------------------------------
+from agent_resilience.router import Consolidator, ModelRouter
 
 
 async def test_router_creation(tmp_path):
-    """Router constructed with primary + fallbacks exposes them in order."""
     router = ModelRouter(
         primary="ollama/test-primary:cloud",
         fallbacks=["ollama/test-fallback1:cloud", "ollama/test-fallback2:cloud"],
@@ -45,10 +14,10 @@ async def test_router_creation(tmp_path):
     assert router.current.model_id == "ollama/test-primary:cloud"
     assert len(router.models) == 3
     assert router.has_fallback()
+    assert router.select().model_id == "ollama/test-primary:cloud"
 
 
 async def test_advance_moves_to_next_model(tmp_path):
-    """advance() rotates to the next model in the chain and records history."""
     router = ModelRouter(
         primary="ollama/test-primary:cloud",
         fallbacks=["ollama/test-fallback1:cloud"],
@@ -61,7 +30,6 @@ async def test_advance_moves_to_next_model(tmp_path):
 
 
 async def test_chain_exhaustion_returns_none(tmp_path):
-    """advance() returns None when the chain has no further models."""
     router = ModelRouter(
         primary="ollama/test-only:cloud",
         fallbacks=[],
@@ -72,7 +40,6 @@ async def test_chain_exhaustion_returns_none(tmp_path):
 
 
 async def test_state_persists_across_instances(tmp_path):
-    """State written by one router instance is visible to a fresh one."""
     state_path = tmp_path / "persist.json"
     router1 = ModelRouter(
         primary="ollama/p1:cloud",
@@ -91,24 +58,15 @@ async def test_state_persists_across_instances(tmp_path):
     assert len(router2.history) == 1
 
 
-# ---------------------------------------------------------------------------
-# Consolidator test
-# ---------------------------------------------------------------------------
-
-
 async def test_consolidator_runs():
-    """Consolidator completes N steps, returns a metrics dict with recovery."""
     consolidator = Consolidator(steps=5, agency_threshold=0.5)
 
     async def predict(obs):
         return f"predicted-{obs}"
 
-    buffer = [
-        {"input": f"obs-{i}", "expected": f"result-{i}"} for i in range(10)
-    ]
+    buffer = [{"input": f"obs-{i}", "expected": f"result-{i}"} for i in range(10)]
     metrics = await consolidator.consolidate(predict, buffer)
 
-    # Steps are capped by consolidator.steps, not the buffer size.
     assert metrics["steps"] == 5
     assert "recovery" in metrics
     assert "duration_seconds" in metrics
@@ -116,17 +74,7 @@ async def test_consolidator_runs():
     assert 0.0 <= metrics["recovery"] <= 1.0
 
 
-# ---------------------------------------------------------------------------
-# End-to-end: the full Fable-style cycle
-# ---------------------------------------------------------------------------
-
-
 async def test_full_resilience_cycle(tmp_path):
-    """Run on primary → fail → consolidate → resume on fallback. The full
-    invariant LAR is meant to deliver: the agent continues working
-    after the primary model disappears, and a new instance reading
-    the state file sees the post-failover state.
-    """
     state_path = tmp_path / "full_cycle.json"
 
     router = ModelRouter(
@@ -135,16 +83,11 @@ async def test_full_resilience_cycle(tmp_path):
         state_path=state_path,
     )
 
-    # Phase 1 — start on primary
     assert router.current.model_id == "ollama/primary:cloud"
-
-    # Phase 2 — primary dies (Fable-style shutdown)
     new = router.advance(reason="test_death")
     assert new is not None
     assert new.model_id == "ollama/fallback:cloud"
 
-    # Phase 3 — fresh process reading the same state file sees the
-    # post-failover state. The agent did not forget the swap.
     recovered = ModelRouter(
         primary="ollama/primary:cloud",
         fallbacks=["ollama/fallback:cloud"],

@@ -1,13 +1,11 @@
 ---
 name: resilience-skill
-description: "Drop-in model resilience for any OpenClaw agent. Survive model death (Fable-style shutdowns, deprecations, outages) with automatic failover and consolidation phase. By Gabriel."
+description: "Thin wrapper around agent_resilience ModelRouter/Consolidator. Survive model death with failover and a consolidation phase. By Gabriel."
 ---
 
 # Resilience Skill — Survive Model Death
 
-Drop this skill into any OpenClaw agent. Configure a primary model and a fallback chain. If the primary dies — export-control directive, deprecation, outage, capability shock — the agent fails over automatically, runs a consolidation phase, and keeps working.
-
-This is the smallest atomic unit of LAR (Local Agent Resilience). Install it. Configure it. Pull the primary model. Watch the agent survive.
+This directory is a thin wrapper around the `agent_resilience` library. Prefer installing the package and importing from there.
 
 ## When to Use
 
@@ -22,35 +20,26 @@ The skill provides four primitives, each backed by a design principle documented
 
 | Primitive | File | Principle |
 |-----------|------|-----------|
-| `ModelRouter` | `scripts/failover.py` | Keep a local fallback chain |
-| `ModelRouter.advance()` | `scripts/failover.py` | Decouple the model from the agent |
-| `Consolidator` | `scripts/failover.py` | Consolidate before you act (Ye 2026) |
-| `SwapEvent` | `scripts/failover.py` | Make failure observable |
+| `ModelRouter` | `agent_resilience.router` (re-exported by `scripts/failover.py`) | Keep a local fallback chain |
+| `ModelRouter.advance()` | `agent_resilience.router` | Decouple the model from the agent |
+| `Consolidator` | `agent_resilience.router` | Consolidate before you act (Ye 2026) |
+| `SwapEvent` | `agent_resilience.router` | Make failure observable |
 
 ## Quick Start
 
-### 1. Install the skill
+### 1. Install the library
 
 ```bash
-clawhub install resilience-skill
+pip install -e .
 ```
 
-### 2. Configure your agent
+### 2. Import the router
 
-```yaml
-# openclaw.yaml
-skills:
-  - resilience-skill
-
-resilience:
-  primary_model: "ollama/glm-5.2:cloud"
-  fallback_chain:
-    - "ollama/qwen3-coder:32b"
-    - "ollama/kimi-k2.7-code:cloud"
-    - "ollama/qwen3.5:9b"
-  consolidation_steps: 50
-  agency_threshold: 0.15
+```python
+from agent_resilience import ModelRouter, Consolidator
 ```
+
+The in-tree `scripts/failover.py` re-exports the same symbols for older examples.
 
 ### 3. Run the demo
 
@@ -70,7 +59,7 @@ You'll see:
 ## Manual Use
 
 ```python
-from failover import ModelRouter, Consolidator
+from agent_resilience import ModelRouter, Consolidator
 
 router = ModelRouter(
     primary="ollama/glm-5.2:cloud",

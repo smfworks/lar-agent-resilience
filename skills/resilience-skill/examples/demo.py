@@ -22,9 +22,12 @@ import time
 from pathlib import Path
 
 # Add scripts dir to path so we can import failover
-_SKILL_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_SKILL_DIR / "scripts"))
-from failover import Consolidator, ModelRouter, SwapEvent  # noqa: E402
+try:
+    from agent_resilience.router import Consolidator, ModelRouter, SwapEvent
+except ImportError:
+    _SKILL_DIR = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(_SKILL_DIR / "scripts"))
+    from failover import Consolidator, ModelRouter, SwapEvent  # noqa: E402
 
 # Quiet the failover module's logger for clean demo output
 logging.getLogger("lar.failover").setLevel(logging.WARNING)

@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional, AsyncIterator
-import json
+from typing import Optional
 import httpx
 import structlog
 
@@ -14,6 +13,10 @@ class LLMResponse:
         self.tool_calls = tool_calls or []
         self.model = model
         self.finish_reason: Optional[str] = None
+
+    @property
+    def model_used(self) -> str:
+        return self.model
 
 
 class LLMBackend(ABC):

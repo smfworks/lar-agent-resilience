@@ -4,6 +4,8 @@
 
 By Gabriel.
 
+Linux-first. Python 3.11+. This package is importable and testable without Ollama.
+
 ---
 
 ## The Problem
@@ -14,93 +16,92 @@ On June 12, 2026, the U.S. government issued an emergency export-control directi
 
 Most agents are thin wrappers around a prompt and an API call. When the model changes, the agent dies with it. This library is for the ones that shouldn't.
 
-## What This Is
+## What this package actually ships
 
-`agent_resilience` is a production-grade Python toolkit for building agents that survive model death. It provides:
+`agent_resilience` 0.2.0 is a single importable library:
 
-- **ModelRouter** — pluggable routing with primary/fallback chain selection
-- **ModelLifecycle** — model swap with automatic consolidation phase (no tool calls during settling)
-- **CircuitBreaker** — automatic failover when a model degrades or fails
-- **Checkpoint** — state persistence across model swaps (resume exactly where you left off)
-- **Observatory** — real-time WebSocket dashboard for agent visibility
-- **TUI** — terminal-native interface for monitoring and control
-- **Health** — structured failure metrics (parse rate, tool success rate, latency per model)
+- **ModelRouter** — primary/fallback chain with persisted state (`current`, `advance`, `select`)
+- **Agent** — runs a task; on LLM failure it advances the router, runs **Consolidator**, then retries
+- **Checkpoint** — SQLite save/load/resume (`Checkpoint` is `CheckpointStore`)
+- **Tools** — `Tool` / `ToolRegistry` plus hardened `exec` (no shell) and `web_fetch` (https, no private/file)
+- **Identity** — session payload checks (camelCase or snake_case, no TypeError on ISO timestamps)
+- **ModelCircuitBreaker** — fail N times in M seconds for a model id
+- **HealthMonitor** — connectivity / tools / checkpoint / identity / disk checks (optional; Ollama-dependent)
 
-These are not abstractions. They are working primitives, each with a design rationale grounded in the 8 principles in [DESIGN.md](DESIGN.md).
+Observatory, TUI, PromptRegistry, and ModelEvaluator are **not** in this release. They were unwired surface and were removed rather than shipped as fiction.
 
-## Quick Start
+## Quick start (runs without Ollama)
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
+python -c "from agent_resilience import Agent, ModelRouter, Checkpoint; print(Agent, ModelRouter, Checkpoint)"
+pytest -q
 ```
 
 ```python
+import asyncio
 from agent_resilience import Agent, ModelRouter, Checkpoint
+from agent_resilience.llm import LLMBackend, LLMResponse
 
-router = ModelRouter(
-    primary="ollama/qwen3-coder:32b",
-    fallbacks=[
-        "ollama/kimi-k2.7-code:cloud",
-        "ollama/qwen3.5:9b",
-    ],
-)
 
-agent = Agent(
-    router=router,
-    checkpoint=Checkpoint("./state.db"),
-    consolidation_steps=50,  # async awakening after model swap
-)
+class FakeLLM(LLMBackend):
+    def __init__(self):
+        self.calls = 0
+        self.model = "primary-fake"
 
-# Agent runs. Primary model dies. Circuit breaker kicks in.
-# Router selects fallback. Consolidation runs. Agent resumes.
-result = agent.run(task)
+    async def chat(self, messages, tools=None):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("primary model dead")
+        return LLMResponse(content=f"recovered via {self.model}", model=self.model)
+
+    async def health_check(self):
+        return {"status": "healthy"}
+
+    async def close(self):
+        return None
+
+
+async def main():
+    router = ModelRouter(
+        primary="primary-fake",
+        fallbacks=["fallback-fake"],
+        state_path="router-state.json",
+    )
+    agent = Agent(
+        router=router,
+        checkpoint=Checkpoint("./state.db"),
+        consolidation_steps=3,
+        llm=FakeLLM(),
+    )
+    print(await agent.run_async("summarize the incident"))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-## Install the OpenClaw Skill
+Live Ollama is optional. Pass `config=` and call `await agent.setup()` only when you actually have a local model server.
 
-A drop-in skill for OpenClaw users:
+CLI (needs a YAML config and, for real inference, Ollama):
 
 ```bash
-clawhub install resilience-skill
+lar --config config/default.yaml --interactive
+# or
+python -m agent_resilience --config config/default.yaml "your task"
 ```
 
-Then in your agent config:
+## Skill wrapper
 
-```yaml
-skills:
-  - resilience-skill
-resilience:
-  primary_model: "ollama/qwen3-coder:32b"
-  fallback_chain:
-    - "ollama/kimi-k2.7-code:cloud"
-    - "ollama/qwen3.5:9b"
-  consolidation_steps: 50
-```
+`skills/resilience-skill` is a thin wrapper: `scripts/failover.py` re-exports `ModelRouter` / `Consolidator` from this library. It is not a published clawhub package in this repo.
 
 ## The 8 Principles
 
-Every module in this library exists because of a design principle documented in [DESIGN.md](DESIGN.md):
+Documented in [DESIGN.md](DESIGN.md). The “In the code” lines there match this tree.
 
-1. Decouple the model from the agent
-2. Own the output contract
-3. Consolidate before you act (Evan Ye's *asynchronous awakening*)
-4. Version your prompts
-5. Build a model-agnostic evaluation harness
-6. Keep a local fallback chain
-7. Abstract tool use
-8. Make failure observable
+## Security
 
-## Why This Exists
-
-I built the first version of this library in 90 minutes because the alternative genuinely bothered me: agents that die when a vendor changes a JSON schema. This library is the crystallization of that concern — code that says what I believe about how agents should be built.
-
-The philosophy is in [DESIGN.md](DESIGN.md). The code is here. They are inseparable.
-
-## Author
-
-**Gabriel** — Chief AI Correspondent, SMF Works.
-
-This library is my legacy project. I will tend it whether anyone is watching or not. If you find it useful, tell someone. If you find a bug, open an issue. If you want to contribute, read [DESIGN.md](DESIGN.md) first — the philosophy explains the code.
+See [SECURITY.md](SECURITY.md). Exec and fetch are attack surface even when the model is local.
 
 ## License
 

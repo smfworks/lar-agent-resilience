@@ -14,8 +14,9 @@ and what happens in practice is the place where agents break."
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -74,7 +75,7 @@ class CircuitBreaker:
     ) -> None:
         self.agent_id = agent_id
         self.config = config or CircuitBreakerConfig()
-        self.state_file = state_file or Path(f"/tmp/lar_circuit_{agent_id}.json")
+        self.state_file = state_file or Path(tempfile.gettempdir()) / f"lar_circuit_{agent_id}.json"
         self.state = CircuitState.CLOSED
         self.misfires: list[MisfireEvent] = []
         self._failure_count = 0
@@ -241,3 +242,34 @@ class CircuitBreaker:
             "last_failure": self._last_failure_time.isoformat() if self._last_failure_time else None,
             "recovery_timeout_seconds": self.config.recovery_timeout_seconds,
         }
+
+
+class ModelCircuitBreaker:
+    """Opens a model after N failures inside a rolling window."""
+
+    def __init__(self, failure_threshold: int = 3, window_seconds: float = 60.0):
+        self.failure_threshold = failure_threshold
+        self.window_seconds = window_seconds
+        self._failures: dict[str, list[float]] = {}
+
+    def record_success(self, model_id: str) -> None:
+        self._failures.pop(model_id, None)
+
+    def record_failure(self, model_id: str, now: float | None = None) -> bool:
+        """Record a failure. Returns True if the breaker is now open."""
+        import time
+
+        stamp = now if now is not None else time.time()
+        bucket = self._failures.setdefault(model_id, [])
+        bucket.append(stamp)
+        cutoff = stamp - self.window_seconds
+        self._failures[model_id] = [t for t in bucket if t >= cutoff]
+        return self.is_open(model_id, now=stamp)
+
+    def is_open(self, model_id: str, now: float | None = None) -> bool:
+        import time
+
+        stamp = now if now is not None else time.time()
+        recent = [t for t in self._failures.get(model_id, []) if t >= stamp - self.window_seconds]
+        return len(recent) >= self.failure_threshold
+

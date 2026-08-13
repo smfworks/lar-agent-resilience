@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -44,7 +44,7 @@ class AgentState:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_results: list[dict[str, Any]] = field(default_factory=list)
     memory_snapshot: dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     is_complete: bool = False
     error: str | None = None
     iteration: int = 0  # For multi-step tasks
@@ -219,14 +219,13 @@ class CheckpointStore:
 
     async def delete_old(self, days: int = 30) -> int:
         """Delete checkpoints older than N days. Returns count."""
-        cutoff = datetime.utcnow().isoformat()
         await self._init()
         async with aiosqlite.connect(self.db_path) as db:
+            if not isinstance(days, int) or days < 0:
+                raise TypeError("days must be a non-negative int")
             cursor = await db.execute(
-                """
-                DELETE FROM checkpoints
-                WHERE timestamp < datetime('now', '-{} days')
-                """.format(days)
+                "DELETE FROM checkpoints WHERE timestamp < datetime('now', ?)",
+                (f"-{int(days)} days",),
             )
             await db.commit()
             return cursor.rowcount
@@ -253,3 +252,7 @@ class CheckpointStore:
             tools_available=json.loads(row["tools_available_json"] or "[]"),
             checkpoint_reason=row["checkpoint_reason"] or "step_boundary",
         )
+
+
+# Public README name.
+Checkpoint = CheckpointStore
