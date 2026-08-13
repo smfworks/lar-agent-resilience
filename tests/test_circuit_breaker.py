@@ -226,11 +226,14 @@ class TestCircuitBreakerRecovery:
         from datetime import datetime, timedelta
         cb._last_failure_time = datetime.utcnow() - timedelta(seconds=10)
 
-        # First eval: transitions to HALF_OPEN, then misfire → retrip
+        # First eval: transitions to HALF_OPEN, then misfire causes retrip
         ok, reason = cb.evaluate(foreign_payload)
         assert ok is False
         assert reason is not None
-        assert "re-tripped" in reason.lower() or "OPEN" in reason or "rejected" in reason.lower()
+        # With threshold=1, _record_misfire trips immediately, so the reason
+        # is "Foreign payload rejected" (the HALF_OPEN branch is never reached
+        # because _record_misfire already tripped the circuit to OPEN)
+        assert "rejected" in reason.lower() or "re-tripped" in reason.lower() or "OPEN" in reason
         assert cb.state == CircuitState.OPEN
 
 

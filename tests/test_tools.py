@@ -122,7 +122,7 @@ class TestExecTool:
         tool = ExecTool()
         result = await tool.execute(command="rm -rf /")
         assert result.success is False
-        assert "blocked pattern" in result.error
+        assert "blocked" in result.error.lower() or "not in the allowed list" in result.error
 
     async def test_unknown_command_rejected(self):
         tool = ExecTool()

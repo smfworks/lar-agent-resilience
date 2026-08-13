@@ -11,6 +11,7 @@ These are the default tools available to every LAR agent:
 
 import subprocess
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -113,23 +114,28 @@ class WebFetchTool(Tool):
 
 
 class ExecTool(Tool):
-    """Execute shell commands with safety restrictions."""
-    
+    """Execute shell commands with safety restrictions.
+
+    Security: uses shlex.split() and subprocess without shell=True to prevent
+    shell injection via command chaining (``;``, ``&&``, ``|``, ``$(...)``).
+    Only the base command is whitelisted; arguments are passed as a list.
+    """
+
     # Commands that are allowed (whitelist approach)
-    ALLOWED_COMMANDS = {
+    ALLOWED_COMMANDS = frozenset({
         "ls", "cat", "grep", "find", "curl", "head", "tail",
         "wc", "date", "whoami", "pwd", "echo", "which",
         "python3", "python", "node", "npm", "git",
-    }
-    
-    # Commands that are NEVER allowed
-    BLOCKED_PATTERNS = [
-        "rm -rf", "rm -r /", "> /dev", "dd if=", "mkfs.",
-        "curl .*\|", "wget .*\|", "eval", "exec",
-    ]
-    
-    def __init__(self, allowed_commands: list[str] = None):
-        self.custom_allowed = set(allowed_commands) if allowed_commands else set()
+    })
+
+    # Shell metacharacters that enable command chaining — always rejected
+    SHELL_METACHARACTERS = frozenset({
+        ";", "&", "|", "$", "`", "(", ")", "<", ">",
+        "\n", "\r", "\\",
+    })
+
+    def __init__(self, allowed_commands: list[str] | None = None):
+        self.custom_allowed = frozenset(allowed_commands) if allowed_commands else frozenset()
         super().__init__(
             name="exec",
             description="Execute a shell command. Only safe, read-only commands are allowed. Use for checking files, running scripts, and gathering system information.",
@@ -149,45 +155,67 @@ class ExecTool(Tool):
                 "required": ["command"],
             },
         )
-    
+
     def _is_safe(self, command: str) -> tuple[bool, str]:
-        """Check if command is safe to execute."""
-        import re
-        
-        # Check blocked patterns
-        for pattern in self.BLOCKED_PATTERNS:
-            if re.search(pattern, command, re.IGNORECASE):
-                return False, f"Command matches blocked pattern: {pattern}"
-        
-        # Extract base command
-        base_cmd = command.strip().split()[0] if command.strip() else ""
-        
+        """Check if command is safe to execute.
+
+        Rejects any shell metacharacters that could enable command chaining,
+        then validates the base command against the whitelist.
+        """
+        import shlex
+
+        if not command or not command.strip():
+            return False, "Command is empty"
+
+        # Reject shell metacharacters to prevent injection
+        for char in self.SHELL_METACHARACTERS:
+            if char in command:
+                return False, f"Shell metacharacter '{char}' is not allowed"
+
+        # Parse with shlex to get the base command
+        try:
+            parts = shlex.split(command)
+        except ValueError as e:
+            return False, f"Command parse error: {e}"
+
+        if not parts:
+            return False, "Command is empty after parsing"
+
+        base_cmd = parts[0]
+
         # Check if base command is allowed
         allowed = self.ALLOWED_COMMANDS | self.custom_allowed
         if base_cmd not in allowed:
             return False, f"Command '{base_cmd}' is not in the allowed list"
-        
+
         return True, ""
-    
+
     async def execute(self, command: str, timeout: int = 30) -> ToolResult:
-        """Execute shell command with safety checks."""
+        """Execute shell command with safety checks.
+
+        Uses shlex.split() and subprocess without ``shell=True`` to prevent
+        shell injection.
+        """
+        import shlex
+
         safe, reason = self._is_safe(command)
         if not safe:
             return ToolResult(output=None, error=f"Safety check failed: {reason}", success=False)
-        
+
+        parts = shlex.split(command)
+
         try:
             result = subprocess.run(
-                command,
-                shell=True,
+                parts,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
             )
-            
+
             output = result.stdout
             if result.stderr:
                 output += f"\nSTDERR:\n{result.stderr}"
-            
+
             return ToolResult(
                 output=output,
                 success=result.returncode == 0,
@@ -223,18 +251,26 @@ class FileReadTool(Tool):
             },
         )
     
+    def _is_within_base(self, resolved: Path) -> bool:
+        """Check that *resolved* is *base* or a descendant of it (path-boundary safe)."""
+        base = Path(self.base_path).resolve()
+        try:
+            resolved.relative_to(base)
+            return True
+        except ValueError:
+            return False
+
     async def execute(self, path: str, limit: int = 1000) -> ToolResult:
         """Read file contents."""
-        import os
         from pathlib import Path
-        
+
         try:
             full_path = Path(self.base_path) / path
-            
-            # Security: prevent directory traversal
+
+            # Security: prevent directory traversal using proper path-boundary check
             resolved = full_path.resolve()
-            base = Path(self.base_path).resolve()
-            if not str(resolved).startswith(str(base)):
+
+            if not self._is_within_base(resolved):
                 return ToolResult(
                     output=None,
                     error=f"Access denied: path '{path}' is outside base directory",
