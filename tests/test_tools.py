@@ -146,6 +146,17 @@ class TestExecTool:
         assert result.success is False
         assert "timed out" in result.error
 
+    async def test_python_interpreter_rejected(self):
+        tool = ExecTool()
+        result = await tool.execute(command="python -c \"print(1)\"")
+        assert result.success is False
+
+    async def test_shell_metacharacters_rejected(self):
+        tool = ExecTool()
+        result = await tool.execute(command="echo hello; rm -rf /")
+        assert result.success is False
+        assert "metacharacters" in result.error
+
     def test_to_openai_schema(self):
         tool = ExecTool()
         schema = tool.to_openai_schema()
@@ -264,6 +275,12 @@ class TestWebSearchTool:
 
 
 class TestWebFetchTool:
+    async def test_fetch_file_scheme_rejected(self):
+        tool = WebFetchTool()
+        result = await tool.execute(url="file:///etc/passwd")
+        assert result.success is False
+        assert "https" in result.error.lower()
+
     async def test_fetch_returns_content(self):
         tool = WebFetchTool()
         with patch("httpx.AsyncClient") as mock_client_cls:
@@ -276,7 +293,7 @@ class TestWebFetchTool:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_cls.return_value = mock_client
 
-            result = await tool.execute(url="http://example.com")
+            result = await tool.execute(url="https://example.com")
             assert result.success is True
             assert "Hello World" in result.output
 
@@ -292,14 +309,14 @@ class TestWebFetchTool:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_cls.return_value = mock_client
 
-            result = await tool.execute(url="http://example.com", max_chars=100)
+            result = await tool.execute(url="https://example.com", max_chars=100)
             assert result.success is True
             assert "truncated" in result.output
 
     async def test_fetch_handles_error(self):
         tool = WebFetchTool()
         with patch("httpx.AsyncClient", side_effect=Exception("connection refused")):
-            result = await tool.execute(url="http://example.com")
+            result = await tool.execute(url="https://example.com")
             assert result.success is False
 
 

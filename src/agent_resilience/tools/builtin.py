@@ -9,9 +9,12 @@ These are the default tools available to every LAR agent:
 - file_write: Write content to files
 """
 
+import shlex
 import subprocess
-import json
 from typing import Any
+from urllib.parse import urlparse
+import ipaddress
+import socket
 
 import httpx
 
@@ -91,7 +94,27 @@ class WebFetchTool(Tool):
     async def execute(self, url: str, max_chars: int = 5000) -> ToolResult:
         """Fetch URL and extract readable content."""
         try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
+            parsed = urlparse(url)
+            if parsed.scheme != "https":
+                return ToolResult(
+                    output=None,
+                    error="Only https URLs are allowed",
+                    success=False,
+                )
+            host = (parsed.hostname or "").strip().lower()
+            if not host:
+                return ToolResult(output=None, error="URL host is required", success=False)
+            if host in {"localhost", "metadata.google.internal"} or host.endswith(".local"):
+                return ToolResult(output=None, error="Private or metadata hosts are blocked", success=False)
+            try:
+                infos = socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
+            except OSError:
+                return ToolResult(output=None, error="Unable to resolve URL host", success=False)
+            for info in infos:
+                ip = ipaddress.ip_address(info[4][0])
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    return ToolResult(output=None, error="Private or reserved addresses are blocked", success=False)
+            async with httpx.AsyncClient(follow_redirects=False, trust_env=False) as client:
                 response = await client.get(url, timeout=30.0)
                 response.raise_for_status()
                 
@@ -117,9 +140,8 @@ class ExecTool(Tool):
     
     # Commands that are allowed (whitelist approach)
     ALLOWED_COMMANDS = {
-        "ls", "cat", "grep", "find", "curl", "head", "tail",
+        "ls", "cat", "grep", "find", "head", "tail",
         "wc", "date", "whoami", "pwd", "echo", "which",
-        "python3", "python", "node", "npm", "git",
     }
     
     # Commands that are NEVER allowed
@@ -151,34 +173,39 @@ class ExecTool(Tool):
         )
     
     def _is_safe(self, command: str) -> tuple[bool, str]:
-        """Check if command is safe to execute."""
+        """Check if command is safe to execute as argv (no shell)."""
         import re
-        
-        # Check blocked patterns
+
+        if not command or not command.strip():
+            return False, "Empty command"
+        # Reject shell metacharacters even though we do not use shell=True
+        if re.search(r"[|&;<>`$\\\n]", command):
+            return False, "Command contains blocked shell metacharacters"
         for pattern in self.BLOCKED_PATTERNS:
             if re.search(pattern, command, re.IGNORECASE):
                 return False, f"Command matches blocked pattern: {pattern}"
-        
-        # Extract base command
-        base_cmd = command.strip().split()[0] if command.strip() else ""
-        
-        # Check if base command is allowed
+        try:
+            argv = shlex.split(command, posix=True)
+        except ValueError:
+            return False, "Command could not be parsed"
+        if not argv:
+            return False, "Empty command"
+        base_cmd = argv[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         allowed = self.ALLOWED_COMMANDS | self.custom_allowed
         if base_cmd not in allowed:
             return False, f"Command '{base_cmd}' is not in the allowed list"
-        
         return True, ""
-    
+
     async def execute(self, command: str, timeout: int = 30) -> ToolResult:
-        """Execute shell command with safety checks."""
+        """Execute command as argv with safety checks. Never uses a shell."""
         safe, reason = self._is_safe(command)
         if not safe:
             return ToolResult(output=None, error=f"Safety check failed: {reason}", success=False)
-        
+        argv = shlex.split(command, posix=True)
         try:
             result = subprocess.run(
-                command,
-                shell=True,
+                argv,
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -234,7 +261,9 @@ class FileReadTool(Tool):
             # Security: prevent directory traversal
             resolved = full_path.resolve()
             base = Path(self.base_path).resolve()
-            if not str(resolved).startswith(str(base)):
+            try:
+                resolved.relative_to(base)
+            except ValueError:
                 return ToolResult(
                     output=None,
                     error=f"Access denied: path '{path}' is outside base directory",
@@ -295,7 +324,9 @@ class FileWriteTool(Tool):
             # Security: prevent directory traversal
             resolved = full_path.resolve()
             base = Path(self.base_path).resolve()
-            if not str(resolved).startswith(str(base)):
+            try:
+                resolved.relative_to(base)
+            except ValueError:
                 return ToolResult(
                     output=None,
                     error=f"Access denied: path '{path}' is outside base directory",
