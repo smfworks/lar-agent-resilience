@@ -204,19 +204,28 @@ class HealthMonitor:
                 expected_agent_id=self.config.agent_id,
                 expected_session_key=self.config.session_key,
             )
-            # Test with a valid payload (self-matching)
-            valid_payload = {
+            now = time.time()
+            camel = {
                 "agentId": self.config.agent_id,
                 "sessionKey": self.config.session_key,
-                "timestamp": time.time(),
+                "timestamp": now,
             }
-            result, _ = validator.validate(valid_payload)
+            snake = {
+                "agent_id": self.config.agent_id,
+                "session_key": self.config.session_key,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            }
+            camel_ok, _ = validator.validate(camel)
+            snake_ok, snake_err = validator.validate(snake)
+            both = camel_ok and snake_ok
             return CheckResult(
                 name="identity_validator",
-                status=HealthStatus.HEALTHY if result else HealthStatus.DEGRADED,
+                status=HealthStatus.HEALTHY if both else HealthStatus.DEGRADED,
                 details={
                     "agent_id": self.config.agent_id,
-                    "self_validation": result,
+                    "self_validation": camel_ok,
+                    "snake_case_iso_validation": snake_ok,
+                    "snake_case_error": snake_err.reason if snake_err else None,
                 },
             )
         except Exception as e:

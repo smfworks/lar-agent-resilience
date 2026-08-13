@@ -45,7 +45,7 @@ def setup_logging(log_level: str, log_format: str):
     )
 
 
-async def main():
+async def async_main():
     parser = argparse.ArgumentParser(description="Local Agent Runtime")
     parser.add_argument("--config", "-c", type=str, help="Path to config YAML")
     parser.add_argument("--agent-id", type=str, help="Agent ID override")
@@ -119,5 +119,10 @@ async def main():
         logger.info("lar_shutdown", agent_id=config.agent_id)
 
 
+def main() -> None:
+    """Sync console-script entrypoint (setuptools cannot await a coroutine)."""
+    asyncio.run(async_main())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

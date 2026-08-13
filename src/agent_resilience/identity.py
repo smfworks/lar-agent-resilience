@@ -1,6 +1,7 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum, auto
-from typing import Optional
+from typing import Any, Optional
 import time
 import hashlib
 import hmac
@@ -15,6 +16,7 @@ class ValidationResult(Enum):
     WRONG_AGENT_ID = auto()
     WRONG_SESSION_KEY = auto()
     STALE_PAYLOAD = auto()
+    INVALID_TIMESTAMP = auto()
     INVALID_SIGNATURE = auto()
     MISSING_FIELDS = auto()
 
@@ -66,15 +68,15 @@ class SessionIdentityValidator:
         if not self._has_required_fields(payload):
             error = ValidationError(
                 result=ValidationResult.MISSING_FIELDS,
-                reason="Payload missing required identity fields (agentId, sessionKey, timestamp)",
+                reason="Payload missing required identity fields (agentId/agent_id, sessionKey/session_key, timestamp)",
             )
             self._log_rejection(error, payload)
             return False, error
-        
-        payload_agent_id = payload.get("agentId")
-        payload_session_key = payload.get("sessionKey")
-        payload_timestamp = payload.get("timestamp")
-        payload_signature = payload.get("signature")
+
+        payload_agent_id = self._field(payload, "agentId", "agent_id")
+        payload_session_key = self._field(payload, "sessionKey", "session_key")
+        payload_timestamp = self._field(payload, "timestamp")
+        payload_signature = self._field(payload, "signature")
         
         # Validate agent ID
         if payload_agent_id != self.expected_agent_id:
@@ -98,8 +100,16 @@ class SessionIdentityValidator:
             self._log_rejection(error, payload)
             return False, error
         
-        # Validate timestamp freshness
-        if not self._is_fresh(payload_timestamp):
+        parsed_ts = self._parse_timestamp(payload_timestamp)
+        if parsed_ts is None:
+            error = ValidationError(
+                result=ValidationResult.INVALID_TIMESTAMP,
+                reason=f"Payload timestamp {payload_timestamp!r} is not a unix time or ISO-8601 datetime",
+            )
+            self._log_rejection(error, payload)
+            return False, error
+
+        if not self._is_fresh(parsed_ts):
             error = ValidationError(
                 result=ValidationResult.STALE_PAYLOAD,
                 reason=f"Payload timestamp {payload_timestamp} is stale (max age: {self.max_payload_age_seconds}s)",
@@ -123,11 +133,46 @@ class SessionIdentityValidator:
         )
         return True, None
     
+    @staticmethod
+    def _field(payload: dict, *names: str) -> Any:
+        """Return the first present identity field (camelCase or snake_case)."""
+        for name in names:
+            if name in payload and payload[name] is not None:
+                return payload[name]
+        return None
+
     def _has_required_fields(self, payload: dict) -> bool:
-        """Check payload has minimum required fields."""
-        required = {"agentId", "sessionKey", "timestamp"}
-        return all(field in payload for field in required)
-    
+        """Check payload has minimum required fields (either naming style)."""
+        has_agent = self._field(payload, "agentId", "agent_id") is not None
+        has_session = self._field(payload, "sessionKey", "session_key") is not None
+        has_ts = self._field(payload, "timestamp") is not None
+        return has_agent and has_session and has_ts
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> Optional[float]:
+        """Parse unix seconds (int/float/numeric string) or ISO-8601."""
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                return float(text)
+            except ValueError:
+                pass
+            iso = text[:-1] + "+00:00" if text.endswith("Z") else text
+            try:
+                parsed = datetime.fromisoformat(iso)
+            except ValueError:
+                return None
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.timestamp()
+        return None
+
     def _is_fresh(self, timestamp: float) -> bool:
         """Check if payload timestamp is within acceptable window."""
         now = time.time()

@@ -13,15 +13,17 @@ Public API:
     CheckpointStore      — SQLite-backed durable agent state persistence
     HealthMonitor        — Structured health checks and reporting
     ModelLifecycle       — Model availability and deprecation tracking
-    ModelRouter          — Pluggable model selection with fallback chain
-    Consolidator         — Post-swap consolidation phase (async awakening)
-    Observatory          — WebSocket live agent visualizer
     LLMBackend           — Abstract LLM backend interface
     OllamaBackend        — Ollama API backend
     FallbackBackend      — Multi-backend sequential fallback
     ToolRegistry         — Agent tool registry
     Tool                 — Abstract tool base class
     ToolResult           — Tool execution result
+
+ModelRouter / Consolidator live in the OpenClaw skill
+(skills/resilience-skill/scripts/failover.py), not this package.
+Observatory / TUI are optional extras (pip install agent-resilience[observatory]
+or [tui]) imported from their submodules.
 """
 
 from agent_resilience.config import ConfigManager, RuntimeConfig
