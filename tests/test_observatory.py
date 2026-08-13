@@ -136,9 +136,10 @@ class TestObservatory:
         assert observatory.health_monitor is mock_monitor
 
     def test_attach_circuit_breaker(self, observatory):
-        from agent_resilience.circuit_breaker import CircuitBreaker, CircuitState
-        import tempfile
         import pathlib
+        import tempfile
+
+        from agent_resilience.circuit_breaker import CircuitBreaker, CircuitState
         cb = CircuitBreaker(
             agent_id="obs-test",
             state_file=pathlib.Path(tempfile.mktemp(suffix=".json")),

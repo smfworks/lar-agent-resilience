@@ -11,8 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -23,7 +22,6 @@ except ImportError:
     websockets = None
 
 from .observatory import Observatory
-
 
 UI_DIR = Path(__file__).parent / "ui"
 
@@ -36,18 +34,22 @@ class _Handler(BaseHTTPRequestHandler):
         elif p.startswith("/static/"):
             target = (UI_DIR / p[len("/static/"):]).resolve()
             if not str(target).startswith(str(UI_DIR.resolve())):
-                self.send_error(403); return
+                self.send_error(403)
+                return
         else:
             target = (UI_DIR / p.lstrip("/")).resolve()
             if not str(target).startswith(str(UI_DIR.resolve())):
-                self.send_error(403); return
+                self.send_error(403)
+                return
         if not target.is_file():
-            self.send_error(404); return
+            self.send_error(404)
+            return
         ctype = "text/html" if target.suffix == ".html" else "application/octet-stream"
         try:
             data = target.read_bytes()
         except Exception as e:
-            self.send_error(500, str(e)); return
+            self.send_error(500, str(e))
+            return
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -121,6 +123,7 @@ def serve_with_demo(host: str = "127.0.0.1", http_port: int = 8765,
     For blog demos, screenshots, presentations.
     """
     import threading
+
     from .observatory_demo import populate
     obs = Observatory(host=host, port=ws_port)
     t = threading.Thread(

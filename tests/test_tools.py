@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_resilience.tools import Tool, ToolResult, ToolRegistry
+from agent_resilience.tools import ToolRegistry, ToolResult
 from agent_resilience.tools.builtin import (
     ExecTool,
     FileReadTool,
@@ -20,7 +20,6 @@ from agent_resilience.tools.builtin import (
     WebSearchTool,
     register_builtin_tools,
 )
-
 
 # ── ToolResult ───────────────────────────────────────────────────────────
 

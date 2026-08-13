@@ -22,13 +22,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 import structlog
 
-from agent_resilience.config import RuntimeConfig
 from agent_resilience.checkpoint import CheckpointStore
+from agent_resilience.config import RuntimeConfig
 
 logger = structlog.get_logger("agent_resilience.health")
 
@@ -318,9 +318,7 @@ class HealthMonitor:
             if check.status == HealthStatus.UNHEALTHY:
                 overall = HealthStatus.UNHEALTHY
                 break
-            elif check.status == HealthStatus.DEGRADED and overall != HealthStatus.UNHEALTHY:
-                overall = HealthStatus.DEGRADED
-            elif check.status == HealthStatus.UNKNOWN and overall == HealthStatus.HEALTHY:
+            elif check.status == HealthStatus.DEGRADED and overall != HealthStatus.UNHEALTHY or check.status == HealthStatus.UNKNOWN and overall == HealthStatus.HEALTHY:
                 overall = HealthStatus.DEGRADED
 
         uptime = (datetime.utcnow() - self._start_time).total_seconds()

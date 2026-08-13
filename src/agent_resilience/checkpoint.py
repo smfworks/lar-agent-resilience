@@ -57,7 +57,7 @@ class AgentState:
         return json.dumps(asdict(self), indent=2, default=str)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AgentState":
+    def from_dict(cls, data: dict[str, Any]) -> AgentState:
         # Convert string phase back to enum
         if isinstance(data.get("phase"), str):
             data["phase"] = Phase(data["phase"])

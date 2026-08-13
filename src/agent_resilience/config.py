@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -21,7 +21,7 @@ class ModelConfig(BaseModel):
     provider: str = "ollama"
     model: str = "kimi-k2.6"
     base_url: str = "http://localhost:11434"
-    api_key: Optional[str] = None
+    api_key: str | None = None
     timeout: float = 120.0
     max_retries: int = 3
     fallbacks: list[str] = Field(default_factory=list)
@@ -70,7 +70,7 @@ class IdentityConfig(BaseModel):
     """Session identity validation configuration."""
 
     enabled: bool = True
-    hmac_secret: Optional[str] = None
+    hmac_secret: str | None = None
     max_payload_age_seconds: int = 300
     strict_session_key: bool = True
 
@@ -134,9 +134,9 @@ class RuntimeConfig(BaseModel):
 class ConfigManager:
     """Manages runtime configuration from YAML files and environment variables."""
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         self.config_path = config_path or self._find_config()
-        self._config: Optional[RuntimeConfig] = None
+        self._config: RuntimeConfig | None = None
 
     def _find_config(self) -> Path:
         """Find config file in standard locations."""
@@ -157,7 +157,7 @@ class ConfigManager:
 
     def load(self) -> RuntimeConfig:
         """Load and validate configuration."""
-        with open(self.config_path, "r") as f:
+        with open(self.config_path) as f:
             raw = yaml.safe_load(f)
 
         if raw is None:

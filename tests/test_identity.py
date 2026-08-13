@@ -6,6 +6,7 @@ missing fields, HMAC signature verification, rejection history.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import hmac
 import json
@@ -169,5 +170,5 @@ class TestSessionIdentityValidator:
             result=ValidationResult.WRONG_AGENT_ID,
             reason="test",
         )
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             err.reason = "modified"  # type: ignore

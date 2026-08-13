@@ -29,7 +29,6 @@ if str(_SKILL_SCRIPTS) not in sys.path:
 
 from failover import Consolidator, ModelRouter  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # ModelRouter tests
 # ---------------------------------------------------------------------------

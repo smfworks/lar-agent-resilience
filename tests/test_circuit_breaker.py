@@ -6,7 +6,6 @@ threshold tripping, state persistence, manual reset, status reporting.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -172,7 +171,6 @@ class TestCircuitBreakerRecovery:
         assert cb.state == CircuitState.OPEN
 
         # Need to set last_failure_time far enough in the past for recovery
-        from datetime import datetime, timedelta
         cb._last_failure_time = datetime.utcnow() - timedelta(seconds=10)
 
         # Should transition to HALF_OPEN since recovery_timeout=0
@@ -197,7 +195,6 @@ class TestCircuitBreakerRecovery:
         assert cb.state == CircuitState.OPEN
 
         # Set last_failure_time in the past so recovery is attempted
-        from datetime import datetime, timedelta
         cb._last_failure_time = datetime.utcnow() - timedelta(seconds=10)
 
         # Next eval transitions to HALF_OPEN, and since payload is valid, closes
@@ -223,7 +220,6 @@ class TestCircuitBreakerRecovery:
         assert cb.state == CircuitState.OPEN
 
         # Set last_failure_time in the past so recovery is attempted
-        from datetime import datetime, timedelta
         cb._last_failure_time = datetime.utcnow() - timedelta(seconds=10)
 
         # First eval: transitions to HALF_OPEN, then misfire causes retrip

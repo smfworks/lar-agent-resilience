@@ -7,16 +7,15 @@ tool execution, checkpoint integration, shutdown, error handling.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from agent_resilience.agent import AgentLoop
-from agent_resilience.config import RuntimeConfig, ModelConfig
+from agent_resilience.checkpoint import AgentState, CheckpointStore, Phase
+from agent_resilience.config import ModelConfig, RuntimeConfig
 from agent_resilience.identity import SessionIdentityValidator
 from agent_resilience.llm import LLMResponse
-from agent_resilience.checkpoint import CheckpointStore, AgentState, Phase
 
 
 @pytest.fixture
@@ -70,13 +69,13 @@ class TestAgentLoopInit:
 
 class TestAgentLoopSetup:
     async def test_setup_initializes_llm(self, agent):
-        with patch.object(agent.llm.__class__, "health_check", new_callable=AsyncMock) if agent.llm else patch("agent_resilience.llm.OllamaBackend.health_check", new_callable=AsyncMock, return_value={"status": "healthy"}):
+        with patch.object(agent.llm.__class__, "health_check", new_callable=AsyncMock) if agent.llm else patch("agent_resilience.llm.OllamaBackend.health_check", new_callable=AsyncMock, return_value={"status": "healthy"}):  # noqa: SIM117
             # Mock the OllamaBackend to avoid real network calls
-            with patch("agent_resilience.llm.OllamaBackend") as MockBackend:
+            with patch("agent_resilience.llm.OllamaBackend") as mock_backend:
                 mock_instance = MagicMock()
                 mock_instance.health_check = AsyncMock(return_value={"status": "healthy"})
                 mock_instance.close = AsyncMock()
-                MockBackend.return_value = mock_instance
+                mock_backend.return_value = mock_instance
 
                 await agent.setup()
 
@@ -87,12 +86,12 @@ class TestAgentLoopSetup:
         config.model.fallbacks = ["fallback-1", "fallback-2"]
         agent = AgentLoop(config, identity)
 
-        with patch("agent_resilience.llm.OllamaBackend") as MockBackend:
+        with patch("agent_resilience.llm.OllamaBackend") as mock_backend:
             mock_instance = MagicMock()
             mock_instance.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_instance.close = AsyncMock()
             mock_instance.model = "test-model"
-            MockBackend.return_value = mock_instance
+            mock_backend.return_value = mock_instance
 
             await agent.setup()
 

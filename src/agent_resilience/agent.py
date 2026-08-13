@@ -1,16 +1,16 @@
-import asyncio
 import json
 import time
-from typing import Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
 import structlog
 
-from agent_resilience.config import ConfigManager, RuntimeConfig
-from agent_resilience.identity import SessionIdentityValidator, ValidationResult
-from agent_resilience.llm import LLMBackend, OllamaBackend, FallbackBackend, LLMResponse
+from agent_resilience.config import RuntimeConfig
+from agent_resilience.identity import SessionIdentityValidator
+from agent_resilience.llm import FallbackBackend, LLMBackend, OllamaBackend
 from agent_resilience.tools import ToolRegistry
 
 if TYPE_CHECKING:
-    from agent_resilience.observatory import Observatory, StepEvent
+    from agent_resilience.observatory import Observatory
 
 logger = structlog.get_logger("lar.agent")
 
@@ -18,22 +18,22 @@ logger = structlog.get_logger("lar.agent")
 class AgentLoop:
     """
     Core autonomous agent execution loop.
-    
+
     Implements the OATA cycle: Observe → Think → Act → (optional Learn)
     """
-    
+
     def __init__(self, config: RuntimeConfig, identity: SessionIdentityValidator,
                  observatory: Optional["Observatory"] = None):
         self.config = config
         self.identity = identity
         self.tool_registry = ToolRegistry()
-        self.llm: Optional[LLMBackend] = None
+        self.llm: LLMBackend | None = None
         self._running = False
         self._message_history: list[dict] = []
         self.observatory = observatory  # optional live visualizer
 
         logger.info("agent_loop_initialized", agent_id=config.agent_id)
-    
+
     async def setup(self) -> None:
         """Initialize LLM backend and tools."""
         # Initialize primary LLM backend
@@ -42,7 +42,7 @@ class AgentLoop:
             base_url=self.config.model.base_url,
             timeout=self.config.model.timeout,
         )
-        
+
         # Set up fallback backends if configured
         if self.config.model.fallbacks:
             fallbacks = [
@@ -52,7 +52,7 @@ class AgentLoop:
             self.llm = FallbackBackend([primary] + fallbacks, self.config.model.fallbacks)
         else:
             self.llm = primary
-        
+
         # Register built-in tools from config
         tool_config = {}
         for tc in self.config.tools:
@@ -60,24 +60,24 @@ class AgentLoop:
                 tool_config["exec"] = tc.config
             elif tc.name in ("file_read", "file_write"):
                 tool_config.setdefault("file", {}).update(tc.config)
-        
+
         try:
             from agent_resilience.tools.builtin import register_builtin_tools
             register_builtin_tools(self.tool_registry, tool_config)
             logger.info("builtin_tools_registered", count=len(self.tool_registry.get_tool_names()))
         except ImportError as e:
             logger.warning("builtin_tools_import_failed", error=str(e))
-        
+
         # Health check
         health = await self.llm.health_check()
         logger.info("llm_health_check", status=health)
-        
+
         logger.info("agent_setup_complete", tools=self.tool_registry.get_tool_names())
-    
+
     async def run_cycle(
         self,
         task: str,
-        payload: Optional[dict] = None,
+        payload: dict | None = None,
         checkpoint_store=None,
         task_id: str = "default",
     ) -> str:
@@ -99,7 +99,7 @@ class AgentLoop:
         """
         # ---- CHECKPOINT: Resume from previous if available ----
         if checkpoint_store:
-            from agent_resilience.checkpoint import CheckpointStore, AgentState, Phase
+            from agent_resilience.checkpoint import AgentState, Phase
             latest = await checkpoint_store.latest_for_task(task_id)
             if latest and not latest.is_complete:
                 logger.info(
@@ -282,7 +282,7 @@ class AgentLoop:
         )
 
         return response.content
-    
+
     async def shutdown(self) -> None:
         """Clean up resources."""
         if self.llm:

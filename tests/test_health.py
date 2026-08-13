@@ -6,13 +6,12 @@ aggregated report, misfire tracking, session counting.
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_resilience.config import RuntimeConfig, ModelConfig
 from agent_resilience.checkpoint import CheckpointStore
+from agent_resilience.config import ModelConfig, RuntimeConfig
 from agent_resilience.health import (
     CheckResult,
     HealthMonitor,
