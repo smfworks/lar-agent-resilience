@@ -9,19 +9,39 @@ These are the default tools available to every LAR agent:
 - file_write: Write content to files
 """
 
+import re
+import shlex
 import subprocess
-import json
 from pathlib import Path
-from typing import Any
 
 import httpx
 
 from agent_resilience.tools import Tool, ToolResult
 
+_UNSAFE_SHELL_CHARS = set(";|&`$()<>\n\r")
+
+
+def resolve_within_base(base_path: str | Path, user_path: str) -> tuple[Path | None, str]:
+    """Resolve user_path inside base_path. Rejects absolute, prefix, and symlink escapes."""
+    base = Path(base_path).resolve()
+    raw = Path(user_path)
+    if raw.is_absolute():
+        return None, f"Access denied: path '{user_path}' is outside base directory"
+    candidate = base / raw
+    try:
+        resolved = candidate.resolve(strict=False)
+    except OSError as exc:
+        return None, str(exc)
+    try:
+        resolved.relative_to(base)
+    except ValueError:
+        return None, f"Access denied: path '{user_path}' is outside base directory"
+    return resolved, ""
+
 
 class WebSearchTool(Tool):
     """Search the web using the configured search provider."""
-    
+
     def __init__(self):
         super().__init__(
             name="web_search",
@@ -42,22 +62,16 @@ class WebSearchTool(Tool):
                 "required": ["query"],
             },
         )
-    
+
     async def execute(self, query: str, count: int = 5) -> ToolResult:
         """Execute web search via DuckDuckGo or similar."""
         try:
-            # Use httpx to call a search API
-            # For now, we'll use a simple DuckDuckGo HTML scraping approach
-            # In production, this would use a proper search API
-            
             ddg_url = "https://duckduckgo.com/html/"
             params = {"q": query}
-            
+
             async with httpx.AsyncClient() as client:
-                response = await client.get(ddg_url, params=params, timeout=30.0)
-                # Note: This is a simplified approach
-                # Real implementation would parse results properly
-                
+                await client.get(ddg_url, params=params, timeout=30.0)
+
             return ToolResult(
                 output=f"Search initiated for: {query}. Use web_fetch to retrieve specific pages.",
             )
@@ -67,7 +81,7 @@ class WebSearchTool(Tool):
 
 class WebFetchTool(Tool):
     """Fetch and extract readable content from URLs."""
-    
+
     def __init__(self):
         super().__init__(
             name="web_fetch",
@@ -88,26 +102,30 @@ class WebFetchTool(Tool):
                 "required": ["url"],
             },
         )
-    
+
     async def execute(self, url: str, max_chars: int = 5000) -> ToolResult:
-        """Fetch URL and extract readable content."""
+        """Fetch URL and extract readable content. HTTPS only."""
+        if not url.lower().startswith("https://"):
+            return ToolResult(
+                output=None,
+                error="Only https URLs are allowed",
+                success=False,
+            )
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 response = await client.get(url, timeout=30.0)
                 response.raise_for_status()
-                
+
                 content = response.text
-                
-                # Simple HTML stripping (production would use readability-lxml)
-                import re
-                text = re.sub(r'<script>.*?</script>', '', content, flags=re.DOTALL)
-                text = re.sub(r'<style>.*?</style>', '', text, flags=re.DOTALL)
-                text = re.sub(r'<[^>]+>', ' ', text)
-                text = re.sub(r'\s+', ' ', text).strip()
-                
+
+                text = re.sub(r"<script>.*?</script>", "", content, flags=re.DOTALL)
+                text = re.sub(r"<style>.*?</style>", "", text, flags=re.DOTALL)
+                text = re.sub(r"<[^>]+>", " ", text)
+                text = re.sub(r"\s+", " ", text).strip()
+
                 if len(text) > max_chars:
                     text = text[:max_chars] + f"\n\n[... truncated at {max_chars} chars]"
-                
+
                 return ToolResult(output=text)
         except Exception as e:
             return ToolResult(output=None, error=str(e), success=False)
@@ -117,22 +135,35 @@ class ExecTool(Tool):
     """Execute shell commands with safety restrictions.
 
     Security: uses shlex.split() and subprocess without shell=True to prevent
-    shell injection via command chaining (``;``, ``&&``, ``|``, ``$(...)``).
-    Only the base command is whitelisted; arguments are passed as a list.
+    shell injection via command chaining. Interpreters and VCS are opt-in.
     """
 
-    # Commands that are allowed (whitelist approach)
     ALLOWED_COMMANDS = frozenset({
-        "ls", "cat", "grep", "find", "curl", "head", "tail",
-        "wc", "date", "whoami", "pwd", "echo", "which",
-        "python3", "python", "node", "npm", "git",
+        "ls",
+        "cat",
+        "grep",
+        "find",
+        "head",
+        "tail",
+        "wc",
+        "date",
+        "whoami",
+        "pwd",
+        "echo",
+        "which",
     })
 
-    # Shell metacharacters that enable command chaining — always rejected
-    SHELL_METACHARACTERS = frozenset({
-        ";", "&", "|", "$", "`", "(", ")", "<", ">",
-        "\n", "\r", "\\",
-    })
+    BLOCKED_PATTERNS = [
+        "rm -rf",
+        "rm -r /",
+        "> /dev",
+        "dd if=",
+        "mkfs.",
+        r"curl .*\|",
+        r"wget .*\|",
+        "eval",
+        "exec",
+    ]
 
     def __init__(self, allowed_commands: list[str] | None = None):
         self.custom_allowed = frozenset(allowed_commands) if allowed_commands else frozenset()
@@ -157,33 +188,26 @@ class ExecTool(Tool):
         )
 
     def _is_safe(self, command: str) -> tuple[bool, str]:
-        """Check if command is safe to execute.
-
-        Rejects any shell metacharacters that could enable command chaining,
-        then validates the base command against the whitelist.
-        """
-        import shlex
-
+        """Check if command is safe to execute without a shell."""
         if not command or not command.strip():
-            return False, "Command is empty"
+            return False, "empty command"
 
-        # Reject shell metacharacters to prevent injection
-        for char in self.SHELL_METACHARACTERS:
-            if char in command:
-                return False, f"Shell metacharacter '{char}' is not allowed"
+        if any(ch in command for ch in _UNSAFE_SHELL_CHARS):
+            return False, "command contains unsafe shell metacharacters"
 
-        # Parse with shlex to get the base command
+        for pattern in self.BLOCKED_PATTERNS:
+            if re.search(pattern, command, re.IGNORECASE):
+                return False, f"Command matches blocked pattern: {pattern}"
+
         try:
-            parts = shlex.split(command)
-        except ValueError as e:
-            return False, f"Command parse error: {e}"
+            argv = shlex.split(command)
+        except ValueError as exc:
+            return False, f"could not parse command: {exc}"
 
-        if not parts:
-            return False, "Command is empty after parsing"
+        if not argv:
+            return False, "empty command"
 
-        base_cmd = parts[0]
-
-        # Check if base command is allowed
+        base_cmd = Path(argv[0]).name
         allowed = self.ALLOWED_COMMANDS | self.custom_allowed
         if base_cmd not in allowed:
             return False, f"Command '{base_cmd}' is not in the allowed list"
@@ -191,22 +215,16 @@ class ExecTool(Tool):
         return True, ""
 
     async def execute(self, command: str, timeout: int = 30) -> ToolResult:
-        """Execute shell command with safety checks.
-
-        Uses shlex.split() and subprocess without ``shell=True`` to prevent
-        shell injection.
-        """
-        import shlex
-
+        """Execute command with safety checks and no shell."""
         safe, reason = self._is_safe(command)
         if not safe:
             return ToolResult(output=None, error=f"Safety check failed: {reason}", success=False)
 
-        parts = shlex.split(command)
-
         try:
+            argv = shlex.split(command)
             result = subprocess.run(
-                parts,
+                argv,
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -228,7 +246,7 @@ class ExecTool(Tool):
 
 class FileReadTool(Tool):
     """Read file contents."""
-    
+
     def __init__(self, base_path: str = "."):
         self.base_path = base_path
         super().__init__(
@@ -250,47 +268,32 @@ class FileReadTool(Tool):
                 "required": ["path"],
             },
         )
-    
-    def _is_within_base(self, resolved: Path) -> bool:
-        """Check that *resolved* is *base* or a descendant of it (path-boundary safe)."""
-        base = Path(self.base_path).resolve()
-        try:
-            resolved.relative_to(base)
-            return True
-        except ValueError:
-            return False
 
     async def execute(self, path: str, limit: int = 1000) -> ToolResult:
         """Read file contents."""
-        from pathlib import Path
-
         try:
-            full_path = Path(self.base_path) / path
-
-            # Security: prevent directory traversal using proper path-boundary check
-            resolved = full_path.resolve()
-
-            if not self._is_within_base(resolved):
+            resolved, err = resolve_within_base(self.base_path, path)
+            if err or resolved is None:
                 return ToolResult(
                     output=None,
-                    error=f"Access denied: path '{path}' is outside base directory",
+                    error=err or f"Access denied: path '{path}' is outside base directory",
                     success=False,
                 )
-            
+
             if not resolved.exists():
                 return ToolResult(output=None, error=f"File not found: {path}", success=False)
-            
+
             if resolved.is_dir():
                 return ToolResult(output=None, error=f"Path is a directory: {path}", success=False)
-            
+
             lines = []
-            with open(resolved, "r") as f:
+            with open(resolved) as f:
                 for i, line in enumerate(f):
                     if i >= limit:
                         lines.append(f"\n... [truncated at {limit} lines]")
                         break
                     lines.append(line)
-            
+
             return ToolResult(output="".join(lines))
         except Exception as e:
             return ToolResult(output=None, error=str(e), success=False)
@@ -298,7 +301,7 @@ class FileReadTool(Tool):
 
 class FileWriteTool(Tool):
     """Write content to files."""
-    
+
     def __init__(self, base_path: str = ".", allow_overwrite: bool = False):
         self.base_path = base_path
         self.allow_overwrite = allow_overwrite
@@ -320,38 +323,30 @@ class FileWriteTool(Tool):
                 "required": ["path", "content"],
             },
         )
-    
+
     async def execute(self, path: str, content: str) -> ToolResult:
         """Write content to file."""
-        from pathlib import Path
-        
         try:
-            full_path = Path(self.base_path) / path
-            
-            # Security: prevent directory traversal
-            resolved = full_path.resolve()
-            base = Path(self.base_path).resolve()
-            if not str(resolved).startswith(str(base)):
+            resolved, err = resolve_within_base(self.base_path, path)
+            if err or resolved is None:
                 return ToolResult(
                     output=None,
-                    error=f"Access denied: path '{path}' is outside base directory",
+                    error=err or f"Access denied: path '{path}' is outside base directory",
                     success=False,
                 )
-            
-            # Check overwrite
+
             if resolved.exists() and not self.allow_overwrite:
                 return ToolResult(
                     output=None,
                     error=f"File exists and overwrite is disabled: {path}",
                     success=False,
                 )
-            
-            # Create parent directories
+
             resolved.parent.mkdir(parents=True, exist_ok=True)
-            
+
             with open(resolved, "w") as f:
                 f.write(content)
-            
+
             return ToolResult(output=f"File written: {resolved}")
         except Exception as e:
             return ToolResult(output=None, error=str(e), success=False)
@@ -360,10 +355,10 @@ class FileWriteTool(Tool):
 def register_builtin_tools(registry, config: dict = None):
     """Register all built-in tools with the given registry."""
     config = config or {}
-    
+
     exec_config = config.get("exec", {})
     file_config = config.get("file", {})
-    
+
     registry.register(WebSearchTool())
     registry.register(WebFetchTool())
     registry.register(ExecTool(allowed_commands=exec_config.get("allowed_commands")))

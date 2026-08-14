@@ -13,13 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
-import signal
 import sys
+import time
 from collections import deque
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
 
 try:
     import websockets
@@ -28,9 +26,9 @@ except ImportError:
     websockets = None
 
 try:
-    from .health import HealthMonitor
     from .checkpoint import CheckpointStore
     from .circuit_breaker import CircuitBreaker
+    from .health import HealthMonitor
 except ImportError:
     HealthMonitor = None
     CheckpointStore = None
@@ -45,9 +43,9 @@ class StepEvent:
     step_number: int
     duration_ms: float
     detail: str = ""
-    tool: Optional[str] = None
-    tool_input: Optional[dict] = None
-    tool_output_preview: Optional[str] = None
+    tool: str | None = None
+    tool_input: dict | None = None
+    tool_output_preview: str | None = None
     success: bool = True
 
 
@@ -94,7 +92,7 @@ class Observatory:
     """WebSocket broadcaster + event logger."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8765,
-                 static_dir: Optional[Path] = None):
+                 static_dir: Path | None = None):
         self.host = host
         self.port = port
         self.state = ObservatoryState()
@@ -103,22 +101,22 @@ class Observatory:
         self._lock = asyncio.Lock()
         self._running = False
         # Optional integrations
-        self.health_monitor: Optional[HealthMonitor] = None
-        self.checkpoint_store: Optional[CheckpointStore] = None
-        self.circuit_breaker: Optional[CircuitBreaker] = None
+        self.health_monitor: HealthMonitor | None = None
+        self.checkpoint_store: CheckpointStore | None = None
+        self.circuit_breaker: CircuitBreaker | None = None
 
     # ----- integration hooks --------------------------------------------
 
-    def attach_health(self, monitor: "HealthMonitor") -> None:
+    def attach_health(self, monitor: HealthMonitor) -> None:
         self.health_monitor = monitor
         self._refresh_health()
 
-    def attach_checkpoints(self, store: "CheckpointStore") -> None:
+    def attach_checkpoints(self, store: CheckpointStore) -> None:
         self.checkpoint_store = store
         if store:
             self.state.checkpoint_count = len(store.list_for_task("") or [])
 
-    def attach_circuit_breaker(self, cb: "CircuitBreaker") -> None:
+    def attach_circuit_breaker(self, cb: CircuitBreaker) -> None:
         self.circuit_breaker = cb
         if cb:
             self.state.circuit_state = cb.state.name

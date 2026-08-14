@@ -18,11 +18,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
-from typing import Callable, Optional
-
 import urllib.request
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 OLLAMA_URL = "http://localhost:11434"
 
@@ -539,7 +538,7 @@ def run_task(model: str, task: Task, retries: int = 1) -> Result:
     )
 
 
-def run_benchmark(models: list[str], task_filter: Optional[str] = None) -> list[Result]:
+def run_benchmark(models: list[str], task_filter: str | None = None) -> list[Result]:
     results = []
     tasks = TASKS if task_filter in (None, "all") else [t for t in TASKS if t.name == task_filter]
     for model in models:
@@ -580,7 +579,7 @@ def render_report(results: list[Result]) -> str:
 
     # Per-task breakdown
     lines.append("## Per-Task Results\n")
-    lines.append("| Task | Category | " + " | ".join(f"`{m}`" for m in by_model.keys()) + " |")
+    lines.append("| Task | Category | " + " | ".join(f"`{m}`" for m in by_model) + " |")
     lines.append("|---|---|" + "|".join(["---"] * len(by_model)) + "|")
     for task in TASKS:
         cells = [f"{task.name} | {task.category}"]

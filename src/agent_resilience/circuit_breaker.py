@@ -14,8 +14,12 @@ and what happens in practice is the place where agents break."
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -63,6 +67,15 @@ class MisfireEvent:
         }
 
 
+def default_state_file(agent_id: str) -> Path:
+    """Per-user state path. Never /tmp — world-writable and wiped on reboot."""
+    safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in agent_id)
+    safe = safe.strip("._") or "agent"
+    root = os.environ.get("XDG_STATE_HOME")
+    base = Path(root) if root else Path.home() / ".local" / "state"
+    return base / "lar" / f"circuit_{safe}.json"
+
+
 class CircuitBreaker:
     """Protects agent from foreign payload contamination."""
 
@@ -74,7 +87,7 @@ class CircuitBreaker:
     ) -> None:
         self.agent_id = agent_id
         self.config = config or CircuitBreakerConfig()
-        self.state_file = state_file or Path(f"/tmp/lar_circuit_{agent_id}.json")
+        self.state_file = Path(state_file) if state_file else default_state_file(agent_id)
         self.state = CircuitState.CLOSED
         self.misfires: list[MisfireEvent] = []
         self._failure_count = 0
@@ -82,39 +95,79 @@ class CircuitBreaker:
         self._half_open_attempts = 0
         self._load_state()
 
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Exclusive flock around load/save. Best-effort if fcntl is missing."""
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.state_file.with_name(self.state_file.name + ".lock")
+        with open(lock_path, "a+", encoding="utf-8") as lock_fh:
+            try:
+                import fcntl
+
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+            except (ImportError, OSError) as exc:
+                logger.debug("circuit_lock_unavailable", error=str(exc))
+            try:
+                yield
+            finally:
+                try:
+                    import fcntl
+
+                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+                except (ImportError, OSError):
+                    pass
+
     def _load_state(self) -> None:
         """Load persisted circuit state."""
-        if self.state_file.exists():
-            try:
-                with open(self.state_file, "r") as f:
-                    data = json.load(f)
-                self.state = CircuitState(data.get("state", "closed"))
-                self.misfires = [
-                    MisfireEvent(**m) for m in data.get("misfires", [])
-                ]
-                self._failure_count = data.get("failure_count", 0)
-                self._last_failure_time = (
-                    datetime.fromisoformat(data["last_failure_time"])
-                    if data.get("last_failure_time")
-                    else None
-                )
-                logger.debug("circuit_state_loaded", state=self.state.value)
-            except Exception as e:
-                logger.warning("circuit_state_load_failed", error=str(e))
+        if not self.state_file.exists():
+            return
+        try:
+            with self._locked(), open(self.state_file, encoding="utf-8") as f:
+                data = json.load(f)
+            self.state = CircuitState(data.get("state", "closed"))
+            self.misfires = [MisfireEvent(**m) for m in data.get("misfires", [])]
+            self._failure_count = data.get("failure_count", 0)
+            self._last_failure_time = (
+                datetime.fromisoformat(data["last_failure_time"])
+                if data.get("last_failure_time")
+                else None
+            )
+            logger.debug("circuit_state_loaded", state=self.state.value)
+        except Exception as e:
+            logger.warning("circuit_state_load_failed", error=str(e))
 
     def _save_state(self) -> None:
-        """Persist circuit state to disk."""
+        """Persist circuit state atomically (tmp + replace) under flock."""
         try:
             data = {
                 "state": self.state.value,
-                "misfires": [m.to_dict() for m in self.misfires[-50:]],  # Keep last 50
+                "misfires": [m.to_dict() for m in self.misfires[-50:]],
                 "failure_count": self._failure_count,
-                "last_failure_time": self._last_failure_time.isoformat() if self._last_failure_time else None,
+                "last_failure_time": (
+                    self._last_failure_time.isoformat() if self._last_failure_time else None
+                ),
                 "timestamp": datetime.utcnow().isoformat(),
             }
+            payload = json.dumps(data, indent=2)
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.state_file, "w") as f:
-                json.dump(data, f, indent=2)
+            with self._locked():
+                fd, tmp_name = tempfile.mkstemp(
+                    prefix=self.state_file.name + ".",
+                    suffix=".tmp",
+                    dir=self.state_file.parent,
+                    text=True,
+                )
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+                        tmp.write(payload)
+                        tmp.flush()
+                        os.fsync(tmp.fileno())
+                    os.chmod(tmp_name, 0o600)
+                    os.replace(tmp_name, self.state_file)
+                except Exception:
+                    with suppress(OSError):
+                        os.unlink(tmp_name)
+                    raise
         except Exception as e:
             logger.warning("circuit_state_save_failed", error=str(e))
 
@@ -134,6 +187,7 @@ class CircuitBreaker:
                 self.state = CircuitState.HALF_OPEN
                 self._half_open_attempts = 0
                 logger.info("circuit_entered_half_open", agent_id=self.agent_id)
+                self._save_state()
             else:
                 logger.warning(
                     "circuit_open_payload_rejected",
@@ -142,8 +196,8 @@ class CircuitBreaker:
                 )
                 return False, f"Circuit breaker OPEN for {self.agent_id}"
 
-        # Validate payload agent_id
-        payload_agent = payload.get("agent_id", "")
+        # Validate payload agent id (snake_case or camelCase — same contract as identity)
+        payload_agent = payload.get("agent_id") or payload.get("agentId") or ""
         if payload_agent and payload_agent != self.agent_id:
             # Foreign payload detected
             self._record_misfire(payload)
@@ -173,7 +227,7 @@ class CircuitBreaker:
             timestamp=datetime.utcnow().isoformat(),
             cron_id=payload.get("cron_id", "unknown"),
             expected_agent_id=self.agent_id,
-            actual_agent_id=payload.get("agent_id", "unknown"),
+            actual_agent_id=payload.get("agent_id") or payload.get("agentId") or "unknown",
             payload_type=payload.get("type", "cron"),
             reason=payload.get("reason", "agent_id_mismatch"),
         )

@@ -13,15 +13,14 @@ import pytest
 from pydantic import ValidationError
 
 from agent_resilience.config import (
-    ConfigManager,
-    RuntimeConfig,
-    ModelConfig,
-    ToolConfig,
-    MemoryConfig,
-    IdentityConfig,
     CircuitBreakerConfigModel,
+    ConfigManager,
+    IdentityConfig,
+    MemoryConfig,
+    ModelConfig,
+    RuntimeConfig,
+    ToolConfig,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 

@@ -115,7 +115,7 @@ class TestFileMemoryProvider:
 
     async def test_creates_directory(self, tmp_path: Path):
         nested = tmp_path / "deep" / "nested" / "memory"
-        provider = FileMemoryProvider(nested)
+        FileMemoryProvider(nested)
         assert nested.exists()
 
     async def test_persistence_across_instances(self, tmp_path: Path):

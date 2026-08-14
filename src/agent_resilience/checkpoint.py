@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -57,7 +57,7 @@ class AgentState:
         return json.dumps(asdict(self), indent=2, default=str)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AgentState":
+    def from_dict(cls, data: dict[str, Any]) -> AgentState:
         # Convert string phase back to enum
         if isinstance(data.get("phase"), str):
             data["phase"] = Phase(data["phase"])
@@ -95,8 +95,7 @@ class CheckpointStore:
                     max_iterations INTEGER DEFAULT 10,
                     model_used TEXT,
                     tools_available_json TEXT,
-                    checkpoint_reason TEXT DEFAULT 'step_boundary',
-                    FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(checkpoint_id)
+                    checkpoint_reason TEXT DEFAULT 'step_boundary'
                 )
                 """
             )
@@ -219,14 +218,15 @@ class CheckpointStore:
 
     async def delete_old(self, days: int = 30) -> int:
         """Delete checkpoints older than N days. Returns count."""
-        cutoff = datetime.utcnow().isoformat()
+        days_int = int(days)
+        if days_int < 0:
+            raise ValueError("days must be >= 0")
+        cutoff = (datetime.utcnow() - timedelta(days=days_int)).isoformat()
         await self._init()
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                """
-                DELETE FROM checkpoints
-                WHERE timestamp < datetime('now', '-{} days')
-                """.format(days)
+                "DELETE FROM checkpoints WHERE timestamp < ?",
+                (cutoff,),
             )
             await db.commit()
             return cursor.rowcount

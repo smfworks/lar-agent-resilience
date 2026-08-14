@@ -10,11 +10,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -29,9 +27,9 @@ class ModelRecord:
     status: str  # "active", "deprecated", "unavailable", "drift_detected"
     first_seen_at: str
     last_seen_at: str
-    last_price_check_at: Optional[str] = None
-    deprecation_notice_at: Optional[str] = None
-    estimated_eol_at: Optional[str] = None  # end-of-life date (YYYY-MM-DD)
+    last_price_check_at: str | None = None
+    deprecation_notice_at: str | None = None
+    estimated_eol_at: str | None = None  # end-of-life date (YYYY-MM-DD)
     notes: list[str] = field(default_factory=list)
 
 
@@ -89,7 +87,7 @@ class ModelLifecycle:
         provider: str,
         status: str = "active",
         price_check: bool = False,
-        note: Optional[str] = None,
+        note: str | None = None,
     ) -> ModelRecord:
         now = datetime.now(timezone.utc).isoformat()
         if model_id in self.models:
@@ -118,9 +116,9 @@ class ModelLifecycle:
     def mark_deprecated(
         self,
         model_id: str,
-        estimated_eol_at: Optional[str] = None,
+        estimated_eol_at: str | None = None,
         reason: str = "Provider deprecation notice",
-    ) -> Optional[ModelRecord]:
+    ) -> ModelRecord | None:
         now = datetime.now(timezone.utc).isoformat()
         rec = self.models.get(model_id)
         if not rec:

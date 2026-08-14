@@ -13,7 +13,6 @@ import time
 
 from .observatory import Observatory, StepEvent
 
-
 TOOLS = ["web_search", "web_fetch", "exec", "file_read", "file_write"]
 PHRASES = {
     "observe": [

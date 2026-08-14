@@ -5,8 +5,6 @@ Covers: all public names are importable, __version__, __all__ completeness.
 
 from __future__ import annotations
 
-import importlib
-
 import agent_resilience
 
 

@@ -18,15 +18,17 @@ Most agents are thin wrappers around a prompt and an API call. When the model ch
 
 `agent_resilience` is a production-grade Python toolkit for building agents that survive model death. It provides:
 
-- **ModelRouter** — pluggable routing with primary/fallback chain selection
+- **FallbackBackend** — sequential LLM backend fallback when a model dies
 - **ModelLifecycle** — model swap with automatic consolidation phase (no tool calls during settling)
-- **CircuitBreaker** — automatic failover when a model degrades or fails
-- **Checkpoint** — state persistence across model swaps (resume exactly where you left off)
-- **Observatory** — real-time WebSocket dashboard for agent visibility
-- **TUI** — terminal-native interface for monitoring and control
-- **Health** — structured failure metrics (parse rate, tool success rate, latency per model)
+- **CircuitBreaker** — trip on foreign/cron payload contamination
+- **CheckpointStore** — SQLite state persistence across process death (resume where you left off)
+- **HealthMonitor** — structured checks (parse rate, tool registry, identity, disk)
+- **SessionIdentityValidator** — HMAC + agent/session binding (camelCase or snake_case)
+- **Observatory / TUI** — optional extras (`pip install 'agent-resilience[observatory]'` / `[tui]`)
 
-These are not abstractions. They are working primitives, each with a design rationale grounded in the 8 principles in [DESIGN.md](DESIGN.md).
+These are working primitives, each with a design rationale grounded in the 8 principles in [DESIGN.md](DESIGN.md).
+
+The OpenClaw skill (`skills/resilience-skill`) ships a separate `ModelRouter` / `Consolidator` used by that skill. Those names are **not** importable from the `agent_resilience` package.
 
 ## Quick Start
 
@@ -35,26 +37,27 @@ pip install -e .
 ```
 
 ```python
-from agent_resilience import Agent, ModelRouter, Checkpoint
-
-router = ModelRouter(
-    primary="ollama/qwen3-coder:32b",
-    fallbacks=[
-        "ollama/kimi-k2.7-code:cloud",
-        "ollama/qwen3.5:9b",
-    ],
+from agent_resilience import (
+    AgentLoop,
+    CheckpointStore,
+    CircuitBreaker,
+    FallbackBackend,
+    HealthMonitor,
+    SessionIdentityValidator,
 )
 
-agent = Agent(
-    router=router,
-    checkpoint=Checkpoint("./state.db"),
-    consolidation_steps=50,  # async awakening after model swap
+# Identity accepts agentId/sessionKey or agent_id/session_key,
+# and unix or ISO-8601 timestamps.
+validator = SessionIdentityValidator(
+    expected_agent_id="gabriel",
+    expected_session_key="agent:gabriel:main",
 )
 
-# Agent runs. Primary model dies. Circuit breaker kicks in.
-# Router selects fallback. Consolidation runs. Agent resumes.
-result = agent.run(task)
+store = CheckpointStore("./state.db")
+breaker = CircuitBreaker("gabriel")  # state under $XDG_STATE_HOME/lar/, not /tmp
 ```
+
+`Agent`, `ModelRouter`, and `Checkpoint` are not package exports. Use `AgentLoop`, `FallbackBackend` (or the skill-local `ModelRouter`), and `CheckpointStore`.
 
 ## Install the OpenClaw Skill
 

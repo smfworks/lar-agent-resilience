@@ -20,20 +20,23 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import sys
 import time
 from collections import deque
 from datetime import datetime
 
-from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Vertical
 from textual.reactive import reactive
 from textual.widgets import (
-    Header, Footer, Static, ListView, ListItem, Label,
-    Sparkline, ProgressBar, RichLog, Rule,
+    Footer,
+    Header,
+    RichLog,
+    Sparkline,
+    Static,
 )
 
 try:
@@ -262,10 +265,8 @@ class LARTui(App):
     async def on_unmount(self) -> None:
         self._stop = True
         if self._ws:
-            try:
+            with contextlib.suppress(Exception):
                 await self._ws.close()
-            except Exception:
-                pass
         if self._ws_task:
             self._ws_task.cancel()
         if self._demo_task:
@@ -306,8 +307,8 @@ class LARTui(App):
     async def _demo_loop(self) -> None:
         """Generate synthetic OATA events for demo/screenshots."""
         import random
-        TOOLS = ["web_search", "web_fetch", "exec", "file_read", "file_write"]
-        PHRASES = {
+        tool_names = ["web_search", "web_fetch", "exec", "file_read", "file_write"]
+        phrases = {
             "observe": [
                 "user: 'summarize the latest OpenClaw release notes'",
                 "identity check: payload signature verified",
@@ -328,7 +329,7 @@ class LARTui(App):
         }
         rng = random.Random()
         step = 0
-        tools = {"web_search": 0, "web_fetch": 0, "exec": 0,
+        tool_counts = {"web_search": 0, "web_fetch": 0, "exec": 0,
                  "file_read": 0, "file_write": 0, "other": 0}
         recent = deque(maxlen=60)
         while not self._stop:
@@ -341,8 +342,8 @@ class LARTui(App):
             tool = None
             detail = ""
             if phase == "act":
-                tool = rng.choice(TOOLS)
-                tools[tool] = tools.get(tool, 0) + 1
+                tool = rng.choice(tool_names)
+                tool_counts[tool] = tool_counts.get(tool, 0) + 1
                 detail = f"invoked {tool}"
             elif phase == "error":
                 detail = rng.choice([
@@ -351,14 +352,14 @@ class LARTui(App):
                     "checkpoint store write failed: disk full",
                 ])
             else:
-                detail = rng.choice(PHRASES[phase])
+                detail = rng.choice(phrases[phase])
             self._apply_snapshot({
                 "agent_id": "lar-demo",
                 "total_steps": step,
                 "current_phase": "running",
                 "circuit_state": "CLOSED",
                 "error_count": sum(1 for _ in range(step) if phase == "error"),
-                "tool_counts": dict(tools),
+                "tool_counts": dict(tool_counts),
                 "recent_steps": [
                     {
                         "timestamp": time.time(),
@@ -419,10 +420,8 @@ class LARTui(App):
         if tool:
             prefix += f"[{tool}] "
         line = prefix + detail
-        try:
+        with contextlib.suppress(Exception):
             self._step_log.write(line)
-        except Exception:
-            pass
 
     def _refresh_ui(self) -> None:
         """Update stats panel + tools panel."""

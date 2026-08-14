@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_resilience.tools import Tool, ToolResult, ToolRegistry
+from agent_resilience.tools import ToolRegistry, ToolResult
 from agent_resilience.tools.builtin import (
     ExecTool,
     FileReadTool,
@@ -20,7 +20,6 @@ from agent_resilience.tools.builtin import (
     WebSearchTool,
     register_builtin_tools,
 )
-
 
 # ── ToolResult ───────────────────────────────────────────────────────────
 
@@ -276,7 +275,7 @@ class TestWebFetchTool:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_cls.return_value = mock_client
 
-            result = await tool.execute(url="http://example.com")
+            result = await tool.execute(url="https://example.com")
             assert result.success is True
             assert "Hello World" in result.output
 
@@ -292,7 +291,7 @@ class TestWebFetchTool:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_cls.return_value = mock_client
 
-            result = await tool.execute(url="http://example.com", max_chars=100)
+            result = await tool.execute(url="https://example.com", max_chars=100)
             assert result.success is True
             assert "truncated" in result.output
 

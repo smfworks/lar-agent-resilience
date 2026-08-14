@@ -13,27 +13,29 @@ Public API:
     CheckpointStore      — SQLite-backed durable agent state persistence
     HealthMonitor        — Structured health checks and reporting
     ModelLifecycle       — Model availability and deprecation tracking
-    ModelRouter          — Pluggable model selection with fallback chain
-    Consolidator         — Post-swap consolidation phase (async awakening)
-    Observatory          — WebSocket live agent visualizer
     LLMBackend           — Abstract LLM backend interface
     OllamaBackend        — Ollama API backend
     FallbackBackend      — Multi-backend sequential fallback
     ToolRegistry         — Agent tool registry
     Tool                 — Abstract tool base class
     ToolResult           — Tool execution result
+
+ModelRouter / Consolidator live in the OpenClaw skill
+(skills/resilience-skill/scripts/failover.py), not this package.
+Observatory / TUI are optional extras (pip install agent-resilience[observatory]
+or [tui]) imported from their submodules.
 """
 
-from agent_resilience.config import ConfigManager, RuntimeConfig
-from agent_resilience.identity import SessionIdentityValidator, ValidationResult, ValidationError
-from agent_resilience.circuit_breaker import CircuitBreaker, CircuitState, CircuitBreakerConfig
-from agent_resilience.checkpoint import CheckpointStore, AgentState, Phase
-from agent_resilience.health import HealthMonitor, HealthReport, HealthStatus, CheckResult
-from agent_resilience.model_lifecycle import ModelLifecycle, ModelRecord
-from agent_resilience.llm import LLMBackend, OllamaBackend, FallbackBackend, LLMResponse
-from agent_resilience.tools import Tool, ToolResult, ToolRegistry
 from agent_resilience.agent import AgentLoop
-from agent_resilience.memory import MemoryManager, InMemoryProvider, FileMemoryProvider
+from agent_resilience.checkpoint import AgentState, CheckpointStore, Phase
+from agent_resilience.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
+from agent_resilience.config import ConfigManager, RuntimeConfig
+from agent_resilience.health import CheckResult, HealthMonitor, HealthReport, HealthStatus
+from agent_resilience.identity import SessionIdentityValidator, ValidationError, ValidationResult
+from agent_resilience.llm import FallbackBackend, LLMBackend, LLMResponse, OllamaBackend
+from agent_resilience.memory import FileMemoryProvider, InMemoryProvider, MemoryManager
+from agent_resilience.model_lifecycle import ModelLifecycle, ModelRecord
+from agent_resilience.tools import Tool, ToolRegistry, ToolResult
 
 __version__ = "1.0.0"
 
