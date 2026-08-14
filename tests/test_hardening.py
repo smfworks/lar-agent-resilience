@@ -120,6 +120,7 @@ class TestCircuitDefaults:
         assert ok is False
         assert reason is not None
 
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes are not enforced on Windows NTFS")
     def test_atomic_save_mode(self, tmp_path):
         state = tmp_path / "cb.json"
         cb = CircuitBreaker(

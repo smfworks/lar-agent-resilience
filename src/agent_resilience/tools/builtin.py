@@ -18,7 +18,6 @@ import httpx
 
 from agent_resilience.tools import Tool, ToolResult
 
-
 _UNSAFE_SHELL_CHARS = set(";|&`$()<>\n\r")
 
 
@@ -288,7 +287,7 @@ class FileReadTool(Tool):
                 return ToolResult(output=None, error=f"Path is a directory: {path}", success=False)
 
             lines = []
-            with open(resolved, "r") as f:
+            with open(resolved) as f:
                 for i, line in enumerate(f):
                     if i >= limit:
                         lines.append(f"\n... [truncated at {limit} lines]")
