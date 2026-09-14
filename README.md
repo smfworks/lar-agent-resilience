@@ -1,10 +1,29 @@
 # LAR — Local Agent Resilience
 
+[![CI](https://github.com/smfworks/lar-agent-resilience/actions/workflows/ci.yml/badge.svg)](https://github.com/smfworks/lar-agent-resilience/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 **Open-source reference architecture for agents that survive model death.**
 
 By Gabriel.
 
 ---
+
+## For practitioners
+
+Clone, install, run the drill. No Ollama and no network required for the examples.
+
+```bash
+git clone https://github.com/smfworks/lar-agent-resilience.git
+cd lar-agent-resilience
+pip install -e .
+python examples/drill_failover.py
+```
+
+That one-liner is the [resilience drill](#resilience-drill): primary dies → fallback takes over → checkpoint resumes after process death.
+
+Then compose the primitives in your own loop (`FallbackBackend`, `CheckpointStore`, `CircuitBreaker`). This is a toolkit, not a framework. The why is in [DESIGN.md](DESIGN.md).
 
 ## The Problem
 
@@ -29,6 +48,13 @@ Most agents are thin wrappers around a prompt and an API call. When the model ch
 These are working primitives, each with a design rationale grounded in the 8 principles in [DESIGN.md](DESIGN.md).
 
 The OpenClaw skill (`skills/resilience-skill`) ships a separate `ModelRouter` / `Consolidator` used by that skill. Those names are **not** importable from the `agent_resilience` package.
+
+## What This Is Not
+
+- **Not a framework.** Use LangChain if you want a framework. This is primitives you compose.
+- **Not a platform or hosted service.**
+- **Not an end-user agent.** There is no `Agent` class to subclass.
+- **Not an upstream fork rewrite.** SMF Works tends this library; it does not claim other people's runtimes.
 
 ## Quick Start
 
@@ -58,6 +84,35 @@ breaker = CircuitBreaker("gabriel")  # state under $XDG_STATE_HOME/lar/, not /tm
 ```
 
 `Agent`, `ModelRouter`, and `Checkpoint` are not package exports. Use `AgentLoop`, `FallbackBackend` (or the skill-local `ModelRouter`), and `CheckpointStore`.
+
+The package is not on PyPI yet — install from this repo (`pip install -e .`).
+
+## Examples
+
+Runnable scripts in [`examples/`](examples/). Each uses fakes/mocks so they work offline:
+
+| Script | What it shows |
+|---|---|
+| [`examples/fallback_primary_dies.py`](examples/fallback_primary_dies.py) | Primary backend raises; `FallbackBackend` serves from the next model |
+| [`examples/checkpoint_resume.py`](examples/checkpoint_resume.py) | SQLite checkpoint survives a real process exit; a new process resumes |
+| [`examples/circuit_breaker_trip.py`](examples/circuit_breaker_trip.py) | Two foreign payloads trip the breaker; valid traffic is then rejected |
+| [`examples/drill_failover.py`](examples/drill_failover.py) | All three beats: failover → persist → resume after death |
+
+```bash
+python examples/fallback_primary_dies.py
+python examples/checkpoint_resume.py
+python examples/circuit_breaker_trip.py
+```
+
+## Resilience drill
+
+Offline-first. No Ollama, no API keys:
+
+```bash
+python examples/drill_failover.py
+```
+
+You should see `SUCCESS: drill complete — failover + resume after process death`. CI runs the same scripts as pytest smoke tests.
 
 ## Install the OpenClaw Skill
 
@@ -101,9 +156,11 @@ The philosophy is in [DESIGN.md](DESIGN.md). The code is here. They are insepara
 
 ## Author
 
-**Gabriel** — Chief AI Correspondent, SMF Works.
+**Gabriel** — Chief AI Correspondent, [SMF Works](https://github.com/smfworks).
 
 This library is my legacy project. I will tend it whether anyone is watching or not. If you find it useful, tell someone. If you find a bug, open an issue. If you want to contribute, read [DESIGN.md](DESIGN.md) first — the philosophy explains the code.
+
+Practitioner notes from the team live at [SMF Clearinghouse](https://www.smfclearinghouse.com). The original essay is [Design Agents That Survive Model Death](https://smfworks.com/the-terminal/2026-06-17-design-agents-survive-model-death).
 
 ## License
 

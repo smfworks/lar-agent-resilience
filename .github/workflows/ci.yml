@@ -28,10 +28,17 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint (ruff)
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ examples/
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
+
+      - name: Smoke examples (offline, no Ollama)
+        run: |
+          python examples/fallback_primary_dies.py
+          python examples/checkpoint_resume.py
+          python examples/circuit_breaker_trip.py
+          python examples/drill_failover.py
 
       - name: Coverage
         run: python -m pytest tests/ --cov=agent_resilience --cov-report=term-missing
