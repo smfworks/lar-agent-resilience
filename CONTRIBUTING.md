@@ -22,6 +22,10 @@ python -m pytest tests/ --cov=agent_resilience --cov-report=term-missing
 
 # Run a specific test file
 python -m pytest tests/test_circuit_breaker.py -v
+
+# Offline examples (no Ollama, no network)
+python examples/drill_failover.py
+python -m pytest tests/test_examples.py -v
 ```
 
 ## Code Style
@@ -36,7 +40,7 @@ python -m pytest tests/test_circuit_breaker.py -v
 1. Create a feature branch from `main`
 2. Write tests for your changes
 3. Ensure all tests pass: `python -m pytest tests/ -v`
-4. Ensure linting passes: `ruff check src/ tests/`
+4. Ensure linting passes: `ruff check src/ tests/ examples/`
 5. Write clear commit messages following conventional commits
 6. Open a PR with a description of what changed and why
 
@@ -51,8 +55,9 @@ The codebase follows a modular design:
   - `health.py` — Health check system
   - `tools/` — Built-in tools (web search, exec, file I/O)
   - `observatory.py` — Observability dashboard
-- `tests/` — Comprehensive test suite (232 tests)
-- `skills/` — Hermes resilience skill
+- `tests/` — Test suite (including offline example smokes)
+- `examples/` — Offline-first runnable scripts (fallback, checkpoint, circuit breaker, drill)
+- `skills/` — OpenClaw / Hermes resilience skill
 - `config.example.yaml` — Example configuration
 
 ## License
